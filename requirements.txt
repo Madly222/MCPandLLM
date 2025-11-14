@@ -1,0 +1,10 @@
+pypdf2
+fastapi
+uvicorn
+openai
+python-dotenv
+PyMuPDF
+pandas
+openpyxl
+python-docx
+tiktoken

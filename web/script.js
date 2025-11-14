@@ -46,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
         chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 
-    // Первый уровень тултипа с задержкой 500мс
     const tooltip = document.querySelector('.tooltip');
     if (tooltip) {
         const tooltipText = tooltip.querySelector('.tooltiptext');
@@ -77,14 +76,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Второй уровень тултипа без задержки и с проверкой экрана
     const innerTooltips = document.querySelectorAll('.inner-tooltip');
     innerTooltips.forEach(inner => {
         const innerText = inner.querySelector('.inner-tooltiptext');
         if (!innerText) return;
 
         inner.addEventListener('mouseenter', () => {
-            // Сначала показать элемент невидимо, чтобы получить реальные размеры
             innerText.style.visibility = 'hidden';
             innerText.style.display = 'block';
             innerText.style.opacity = '0';
@@ -93,14 +90,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const tooltipHeight = innerText.offsetHeight;
             const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
 
-            // Если тултип не помещается ниже
             if (rectParent.bottom + tooltipHeight > viewportHeight) {
                 innerText.style.top = `${-tooltipHeight}px`; // показываем выше родителя
             } else {
                 innerText.style.top = `${inner.offsetHeight}px`; // показываем ниже родителя
             }
 
-            // Делаем видимым
             innerText.style.visibility = 'visible';
             innerText.style.opacity = '1';
             innerText.style.display = '';

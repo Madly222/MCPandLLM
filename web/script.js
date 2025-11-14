@@ -84,32 +84,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!innerText) return;
 
         inner.addEventListener('mouseenter', () => {
-            // Сначала показать временно для расчета
+            // Сначала показать элемент невидимо, чтобы получить реальные размеры
             innerText.style.visibility = 'hidden';
             innerText.style.display = 'block';
+            innerText.style.opacity = '0';
 
-            const rect = innerText.getBoundingClientRect();
+            const rectParent = inner.getBoundingClientRect();
+            const tooltipHeight = innerText.offsetHeight;
             const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
 
-            // Расположение тултипа
-            if (rect.bottom > viewportHeight) {
-                innerText.style.bottom = 'auto';
-                innerText.style.top = '100%';
+            // Если тултип не помещается ниже
+            if (rectParent.bottom + tooltipHeight > viewportHeight) {
+                innerText.style.top = `${-tooltipHeight}px`; // показываем выше родителя
             } else {
-                innerText.style.bottom = '100%';
-                innerText.style.top = 'auto';
+                innerText.style.top = `${inner.offsetHeight}px`; // показываем ниже родителя
             }
 
-            innerText.style.display = ''; // вернуть исходное состояние
+            // Делаем видимым
             innerText.style.visibility = 'visible';
             innerText.style.opacity = '1';
+            innerText.style.display = '';
         });
 
         inner.addEventListener('mouseleave', () => {
             innerText.style.visibility = 'hidden';
             innerText.style.opacity = '0';
             innerText.style.top = '';
-            innerText.style.bottom = '100%';
         });
     });
 });

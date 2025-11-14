@@ -3,25 +3,63 @@ import re
 from pathlib import Path
 from typing import Optional, List
 from agent.memory import memory
-from .utils import BASE_FILES_DIR, read_file
+from .utils import BASE_FILES_DIR
 
-STOP_WORDS = {"открой", "покажи", "прочитай", "можешь", "excel", "файл", "таблица", "таблицу", "лист"}
+# Для Word/PDF
+from docx import Document
+import PyPDF2
+
+STOP_WORDS = {"открой", "покажи", "прочитай", "можешь", "файл", "текст"}
+
+def read_text_file(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception as e:
+        return f"Ошибка при чтении файла: {e}"
+
+def read_docx(path: Path) -> str:
+    try:
+        doc = Document(path)
+        return "\n".join([p.text for p in doc.paragraphs])
+    except Exception as e:
+        return f"Ошибка при чтении Word файла: {e}"
+
+def read_pdf(path: Path) -> str:
+    try:
+        text = ""
+        with open(path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            for page in reader.pages:
+                text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        return f"Ошибка при чтении PDF файла: {e}"
+
+def read_file(path: Path) -> str:
+    if path.suffix.lower() == ".txt":
+        return read_text_file(path)
+    elif path.suffix.lower() == ".docx":
+        return read_docx(path)
+    elif path.suffix.lower() == ".pdf":
+        return read_pdf(path)
+    else:
+        return f"Формат файла {path.suffix} не поддерживается."
 
 def try_handle_file_command(text: str, user_id: str) -> Optional[str]:
-    """
-    Search non-excel files by keywords and return content or selection prompt.
-    """
     match = re.search(r"(прочитай|открой|покажи)\s*(.+)", text, re.I)
     if not match:
         return None
 
     raw = match.group(2).strip().lower()
-    keywords = [kw for kw in raw.split() if kw and kw not in STOP_WORDS]
+    # убираем расширения и стоп-слова
+    for ext in [".txt", ".pdf", ".docx"]:
+        raw = raw.replace(ext, "")
+    keywords = [kw for kw in raw.split() if kw not in STOP_WORDS]
 
     matched_files: List[Path] = [
         f for f in BASE_FILES_DIR.iterdir()
-        if f.is_file() and f.suffix.lower() not in (".xlsx", ".xls")
-        and all(kw in f.name.lower() for kw in keywords)
+        if f.is_file() and f.suffix.lower() in (".txt", ".pdf", ".docx")
+        and all(kw in f.stem.lower() for kw in keywords)
     ]
 
     if not matched_files:

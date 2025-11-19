@@ -1,10 +1,26 @@
-pypdf2
+# Основные зависимости
 fastapi
 uvicorn
-openai
 python-dotenv
-PyMuPDF
-pandas
+
+# LLM клиент
+openai
+
+# Работа с файлами
 openpyxl
 python-docx
+PyPDF2
+
+# Weaviate и векторный поиск
+weaviate-client[embedded]
+sentence-transformers  # для локальных эмбеддингов (опционально)
+
+# Работа с данными
+pandas        # Анализ данных и работа с таблицами
 tiktoken
+
+# Утилиты
+requests
+
+# Weaviate Embedded
+weaviate-client[embedded]

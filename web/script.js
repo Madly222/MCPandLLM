@@ -41,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
             msgDiv.className = 'message';
         }
 
-        msgDiv.innerHTML = `<b>${role}:</b> ${text}`;
+        msgDiv.innerText = `${role}:\n${text}`;
         chatContainer.appendChild(msgDiv);
         chatContainer.scrollTop = chatContainer.scrollHeight;
     }

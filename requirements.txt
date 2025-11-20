@@ -11,12 +11,8 @@ openpyxl
 python-docx
 PyPDF2
 
-# Weaviate и векторный поиск
-weaviate-client[embedded]
-sentence-transformers  # для локальных эмбеддингов (опционально)
-
 # Работа с данными
-pandas        # Анализ данных и работа с таблицами
+pandas
 tiktoken
 
 # Утилиты
@@ -24,3 +20,7 @@ requests
 
 # Weaviate Embedded
 weaviate-client[embedded]
+
+# sentence-transformers (CPU версия, безопасная)
+sentence-transformers==2.2.2
+torch==2.2.0

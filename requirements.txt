@@ -9,5 +9,6 @@ pandas
 tiktoken
 requests
 weaviate-client[embedded]
+torch==2.2.0+cpu
+torchvision==0.24.1+cpu
 sentence-transformers==2.2.2
-torch==2.2.0

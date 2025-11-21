@@ -22,16 +22,14 @@ class WeaviateStore:
 
     # ------------------- Подключение -------------------
     def connect(self) -> bool:
-        """Подключение к Weaviate через HTTP"""
+        """Подключение к Weaviate через HTTP (синхронно, для v5-клиента)"""
         try:
+            import weaviate  # убедимся, что импорт внутри метода
             logger.info(f"🔌 Подключение к Weaviate на {self.url}...")
-            host = self.url.replace("http://", "").replace("https://", "")
-            self.client = Client(connection=Connection(host=host, scheme="http"))
-
+            self.client = weaviate.Client(url=self.url)
             if not self.client.is_ready():
                 logger.error("❌ Weaviate не готов!")
                 return False
-
             logger.info("✅ Подключено к Weaviate")
             self._create_schemas()
             return True

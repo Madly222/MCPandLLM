@@ -7,41 +7,58 @@ import weaviate
 from weaviate.classes.config import Property, DataType, Configure
 from dotenv import load_dotenv
 
-load_dotenv()  # Загружаем ключи из .env
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
 class WeaviateStore:
 
-    def __init__(self, url: str = "http://localhost:8082"):
-        self.url = url
+    def __init__(self, host: str = "localhost", port: int = 8082):
+        self.host = host
+        self.port = port
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.client: Optional[weaviate.WeaviateClient] = None
 
     # ------------------- Подключение -------------------
     def connect(self) -> bool:
-        """Подключение к Weaviate через HTTP"""
+        """Подключение к Weaviate через Docker"""
         try:
-            logger.info(f"🔌 Подключение к Weaviate на {self.url}...")
-            # Используем актуальный класс клиента v4
-            self.client = weaviate.WeaviateClient(url=self.url)
+            logger.info(f"🔌 Подключение к Weaviate на {self.host}:{self.port}...")
+
+            # ✅ ПРАВИЛЬНЫЙ способ для Weaviate v4
+            self.client = weaviate.connect_to_local(
+                host=self.host,
+                port=self.port,
+                grpc_port=50051,  # gRPC порт (обычно 50051)
+                headers={
+                    "X-OpenAI-Api-Key": self.openai_api_key
+                } if self.openai_api_key else None
+            )
+
             if not self.client.is_ready():
                 logger.error("❌ Weaviate не готов!")
                 return False
+
             logger.info("✅ Подключено к Weaviate")
             self._create_schemas()
             return True
+
         except Exception as e:
             logger.error(f"❌ Ошибка подключения: {e}")
             self.client = None
             return False
 
     def is_connected(self) -> bool:
-        return self.client is not None and self.client.is_ready()
+        try:
+            return self.client is not None and self.client.is_ready()
+        except:
+            return False
 
     def disconnect(self):
-        self.client = None
+        if self.client:
+            self.client.close()
         logger.info("🔌 Отключено от Weaviate")
 
     # ------------------- Создание схем -------------------
@@ -82,15 +99,18 @@ class WeaviateStore:
         ]
 
         for schema in schemas:
-            if not self.client.collections.exists(schema["name"]):
-                self.client.collections.create(
-                    name=schema["name"],
-                    vectorizer_config=Configure.Vectorizer.text2vec_openai(
-                        model="text-embedding-3-small"
-                    ) if self.openai_api_key else None,
-                    properties=schema["properties"]
-                )
-                logger.info(f"✅ Создана схема {schema['name']}")
+            try:
+                if not self.client.collections.exists(schema["name"]):
+                    self.client.collections.create(
+                        name=schema["name"],
+                        vectorizer_config=Configure.Vectorizer.text2vec_openai(
+                            model="text-embedding-3-small"
+                        ) if self.openai_api_key else None,
+                        properties=schema["properties"]
+                    )
+                    logger.info(f"✅ Создана схема {schema['name']}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка создания схемы {schema['name']}: {e}")
 
     # ------------------- Работа с документами -------------------
     def add_document(self, content: str, filename: str, filetype: str,
@@ -110,7 +130,6 @@ class WeaviateStore:
                     "filetype": filetype,
                     "user_id": user_id,
                     "created_at": datetime.now().isoformat(),
-                    **(metadata or {})
                 })
                 added += 1
 
@@ -254,19 +273,23 @@ class WeaviateStore:
         except Exception as e:
             logger.error(f"❌ Ошибка очистки данных: {e}")
 
-# ------------------- Вспомогательные методы -------------------
-@staticmethod
-def _split_into_chunks(text: str, max_words: int = 500) -> List[str]:
-    words = text.split()
-    return [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
+    # ✅ ПЕРЕМЕСТИЛ ВНУТРЬ КЛАССА
+    def _split_into_chunks(self, text: str, max_words: int = 500) -> List[str]:
+        """Разбиение текста на чанки"""
+        words = text.split()
+        if not words:
+            return [text]
+        return [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
+
 
 # ------------------- Глобальный экземпляр -------------------
-
 vector_store = WeaviateStore()
 
 if __name__ == "__main__":
     if vector_store.connect():
-        print("WeaviateStore подключен и готов к работе!")
+        print("✅ WeaviateStore подключен и готов к работе!")
+        stats = vector_store.get_stats()
+        print(f"📊 Статистика: {stats}")
     else:
-        print("Ошибка подключения к WeaviateStore")
+        print("❌ Ошибка подключения к WeaviateStore")
 

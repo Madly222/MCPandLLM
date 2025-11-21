@@ -1,17 +1,20 @@
-version: "3.9"
-
+version: '3.4'
 services:
-  mcp:
-    build: .
-    container_name: mcp_server
-    env_file:
-      - .env
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.24.4
     ports:
-      - "8000:8000"
-    volumes:
-      - ./weaviate_data:/app/weaviate_data
-      - ./web:/app/web
-      - /home/user/MCPandLLM/storage:/app/storage   # монтируем локальную storage
-    restart: unless-stopped
+      - "8082:8080"      # HTTP порт
+      - "50051:50051"    # gRPC порт
     environment:
-      - FILES_DIR=/app/storage
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+      ENABLE_MODULES: 'text2vec-openai'
+      OPENAI_APIKEY: ${OPENAI_API_KEY}
+      CLUSTER_HOSTNAME: 'node1'
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+
+volumes:
+  weaviate_data:

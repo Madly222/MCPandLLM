@@ -5,6 +5,7 @@ from datetime import datetime
 
 import weaviate
 from weaviate.classes.config import Property, DataType, Configure
+from weaviate import Client, Connection
 from dotenv import load_dotenv
 
 load_dotenv()  # Загружаем ключи из .env
@@ -24,10 +25,13 @@ class WeaviateStore:
         """Подключение к Weaviate через HTTP"""
         try:
             logger.info(f"🔌 Подключение к Weaviate на {self.url}...")
-            self.client = weaviate.WeaviateClient(url=self.url)
+            host = self.url.replace("http://", "").replace("https://", "")
+            self.client = Client(connection=Connection(host=host, scheme="http"))
+
             if not self.client.is_ready():
                 logger.error("❌ Weaviate не готов!")
                 return False
+
             logger.info("✅ Подключено к Weaviate")
             self._create_schemas()
             return True

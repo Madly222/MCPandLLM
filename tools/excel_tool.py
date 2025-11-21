@@ -1,25 +1,36 @@
 # tools/excel_tool.py
-from typing import Optional
+from typing import Optional, List
 from openpyxl import load_workbook, Workbook
 from agent.memory import memory
 from tools.utils import BASE_FILES_DIR
 
-def read_excel(filename: str) -> str:
+# Количество строк на один чанк для индексации
+CHUNK_SIZE = 10
+
+def read_excel(filename: str) -> List[str]:
+    """
+    Возвращает список чанков (по CHUNK_SIZE строк) для каждой таблицы в Excel.
+    """
     path = BASE_FILES_DIR / filename
     if not path.exists():
-        return f"Файл '{filename}' не найден."
+        return [f"Файл '{filename}' не найден."]
     try:
         wb = load_workbook(path)
-        sheets_text = []
+        chunks = []
         for sheet in wb.sheetnames:
             ws = wb[sheet]
-            data = []
+            data_rows = []
             for row in ws.iter_rows(values_only=True):
-                data.append([str(cell) if cell is not None else "" for cell in row])
-            sheets_text.append(f"Лист: {sheet}\n" + "\n".join([", ".join(r) for r in data]))
-        return "\n\n".join(sheets_text)
+                data_rows.append([str(cell) if cell is not None else "" for cell in row])
+
+            # Разделяем на чанки
+            for i in range(0, len(data_rows), CHUNK_SIZE):
+                chunk_rows = data_rows[i:i+CHUNK_SIZE]
+                chunk_text = f"Лист: {sheet}\n" + "\n".join([", ".join(r) for r in chunk_rows])
+                chunks.append(chunk_text)
+        return chunks
     except Exception as e:
-        return f"Ошибка при чтении Excel: {e}"
+        return [f"Ошибка при чтении Excel: {e}"]
 
 def write_excel(filename: str, sheet_name: str, data: list) -> str:
     path = BASE_FILES_DIR / filename
@@ -40,10 +51,10 @@ def write_excel(filename: str, sheet_name: str, data: list) -> str:
     wb.save(path)
     return f"Файл '{filename}' успешно обновлён."
 
-def select_excel_file(user_id: str, choice: str) -> Optional[str]:
+def select_excel_file(user_id: str, choice: str) -> Optional[List[str]]:
     matched_files = memory.get_user_files(user_id)
     if not matched_files:
-        return "Сначала выполните команду поиска Excel файла."
+        return ["Сначала выполните команду поиска Excel файла."]
     try:
         index = int(choice.strip()) - 1
         if 0 <= index < len(matched_files):
@@ -56,4 +67,4 @@ def select_excel_file(user_id: str, choice: str) -> Optional[str]:
             return read_excel(selected_file.name)
     except Exception:
         pass
-    return "Некорректный выбор файла. Введите номер из списка."
+    return ["Некорректный выбор файла. Введите номер из списка."]

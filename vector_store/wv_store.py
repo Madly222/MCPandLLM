@@ -148,7 +148,7 @@ class WeaviateStore:
                 query=query,
                 limit=limit,
                 return_properties=["content", "filename", "filetype"],
-                where=Filter.by_property("user_id").equal(user_id)
+                filters=Filter.by_property("user_id").equal(user_id)
             )
 
             return [
@@ -193,7 +193,7 @@ class WeaviateStore:
                 query=query,
                 limit=limit,
                 return_properties=["fact"],
-                where=Filter.by_property("user_id").equal(user_id)
+                filters=Filter.by_property("user_id").equal(user_id)
             )
             return [obj.properties["fact"] for obj in response.objects]
         except Exception as e:
@@ -226,7 +226,7 @@ class WeaviateStore:
                 query=query,
                 limit=limit,
                 return_properties=["message", "role", "timestamp"],
-                where=Filter.by_property("user_id").equal(user_id)
+                filters=Filter.by_property("user_id").equal(user_id)
             )
             return [
                 {"message": obj.properties["message"],

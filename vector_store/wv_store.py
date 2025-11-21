@@ -28,7 +28,7 @@ class WeaviateStore:
         try:
             logger.info("🔌 Подключение к Weaviate через HTTP...")
             # Подключаемся к локальному серверу Weaviate, который поднят через Docker
-            self.client = weaviate.Client(url="http://localhost:8080")
+            self.client = weaviate.Client(url="http://localhost:8082")
 
             if not self.client.is_ready():
                 logger.error("❌ Weaviate не готов!")

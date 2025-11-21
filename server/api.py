@@ -49,11 +49,17 @@ def load_storage_files():
             except Exception as e:
                 logger.error(f"❌ Ошибка при загрузке {file_path.name}: {e}")
 
+
 @app.on_event("startup")
-async def startup_event():
+async def startup():
+    # ✅ Подключаемся к Weaviate
+    if not vector_store.is_connected():
+        if vector_store.connect():
+            logger.info("✅ Weaviate подключен при старте сервера")
+        else:
+            logger.warning("⚠️ Не удалось подключиться к Weaviate")
+
     logger.info("Запуск автозагрузки файлов из storage...")
-    load_storage_files()
-    logger.info("Автозагрузка файлов завершена.")
 
 @app.get("/")
 async def index():

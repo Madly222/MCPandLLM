@@ -5,7 +5,6 @@ from datetime import datetime
 
 import weaviate
 from weaviate.classes.config import Property, DataType, Configure
-from weaviate import Client, Connection
 from dotenv import load_dotenv
 
 load_dotenv()  # Загружаем ключи из .env
@@ -22,11 +21,11 @@ class WeaviateStore:
 
     # ------------------- Подключение -------------------
     def connect(self) -> bool:
-        """Подключение к Weaviate через HTTP (синхронно, для v5-клиента)"""
+        """Подключение к Weaviate через HTTP"""
         try:
-            import weaviate  # убедимся, что импорт внутри метода
             logger.info(f"🔌 Подключение к Weaviate на {self.url}...")
-            self.client = weaviate.Client(url=self.url)
+            # Используем актуальный класс клиента v4
+            self.client = weaviate.WeaviateClient(url=self.url)
             if not self.client.is_ready():
                 logger.error("❌ Weaviate не готов!")
                 return False

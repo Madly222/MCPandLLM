@@ -14,25 +14,17 @@ logger.setLevel(logging.INFO)
 
 class WeaviateStore:
 
-    def __init__(self, persistence_dir: str = "./weaviate_data"):
-        self.persistence_dir = persistence_dir
+    def __init__(self, url: str = "http://localhost:8082"):
+        self.url = url
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.client: Optional[weaviate.Client] = None
-
-        if not self.openai_api_key:
-            logger.warning("⚠️ OPENAI_API_KEY не найден! Векторизация через OpenAI не будет работать.")
+        self.client: Optional[weaviate.WeaviateClient] = None
 
     # ------------------- Подключение -------------------
     def connect(self) -> bool:
-        """Подключение к локальному Weaviate через HTTP (v4)"""
+        """Подключение к Weaviate через HTTP"""
         try:
-            logger.info("🔌 Подключение к Weaviate...")
-            self.client = weaviate.WeaviateClient(
-                    connection=weaviate.Connection(
-                    url="http://localhost:8082",
-                    additional_headers={},
-                    )
-            )
+            logger.info(f"🔌 Подключение к Weaviate на {self.url}...")
+            self.client = weaviate.WeaviateClient(url=self.url)
             if not self.client.is_ready():
                 logger.error("❌ Weaviate не готов!")
                 return False
@@ -48,9 +40,8 @@ class WeaviateStore:
         return self.client is not None and self.client.is_ready()
 
     def disconnect(self):
-        if self.client:
-            self.client = None
-            logger.info("🔌 Отключено от Weaviate")
+        self.client = None
+        logger.info("🔌 Отключено от Weaviate")
 
     # ------------------- Создание схем -------------------
     def _create_schemas(self):

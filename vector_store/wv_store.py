@@ -276,3 +276,6 @@ class WeaviateStore:
 
 # ------------------- Глобальный экземпляр -------------------
 vector_store = WeaviateStore()
+
+if __name__ == "__main__":
+    print("WeaviateStore loaded successfully")

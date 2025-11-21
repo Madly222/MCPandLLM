@@ -1,26 +1,13 @@
-# Основные зависимости
 fastapi
 uvicorn
 python-dotenv
-
-# LLM клиент
 openai
-
-# Работа с файлами
 openpyxl
 python-docx
 PyPDF2
-
-# Работа с данными
 pandas
 tiktoken
-
-# Утилиты
 requests
-
-# Weaviate Embedded
 weaviate-client[embedded]
-
-# sentence-transformers (CPU версия, безопасная)
 sentence-transformers==2.2.2
 torch==2.2.0

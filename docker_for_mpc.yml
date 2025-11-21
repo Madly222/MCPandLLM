@@ -1,0 +1,36 @@
+# -----------------------------
+# Dockerfile для MCP + Weaviate Embedded
+# -----------------------------
+# Базовый образ Python
+FROM python:3.11-slim
+
+# Устанавливаем системные зависимости для работы PyTorch, Weaviate и других библиотек
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создаем рабочую директорию внутри контейнера
+WORKDIR /app
+
+# Копируем requirements.txt и устанавливаем зависимости
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Копируем весь проект в контейнер
+COPY . .
+
+# Создаем папку для Weaviate данных внутри контейнера
+RUN mkdir -p /app/weaviate_data
+
+# Пробрасываем переменные окружения из .env
+ENV PYTHONUNBUFFERED=1
+
+# Экспонируем порт FastAPI
+EXPOSE 8000
+
+# Команда запуска Uvicorn сервера
+CMD ["uvicorn", "server.api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

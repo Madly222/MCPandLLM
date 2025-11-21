@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  mcp:
+    build: .
+    container_name: mcp_server
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./weaviate_data:/app/weaviate_data
+      - ./web:/app/web
+      - /home/user/MCPandLLM/storage:/app/storage   # монтируем локальную storage
+    restart: unless-stopped
+    environment:
+      - FILES_DIR=/app/storage

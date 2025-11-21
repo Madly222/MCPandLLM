@@ -103,7 +103,7 @@ class WeaviateStore:
                 if not self.client.collections.exists(schema["name"]):
                     self.client.collections.create(
                         name=schema["name"],
-                        vectorizer_config=Configure.Vectorizer.text2vec_openai(
+                        vector_config=Configure.Vectorizer.text2vec_transformers(),
                             model="text-embedding-3-small"
                         ) if self.openai_api_key else None,
                         properties=schema["properties"]

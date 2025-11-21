@@ -24,20 +24,21 @@ class WeaviateStore:
 
     # ------------------- Подключение -------------------
     def connect(self) -> bool:
-        """Подключение к локальному Weaviate через HTTP"""
+        """Подключение к локальному Weaviate через HTTP (v4)"""
         try:
-            logger.info("🔌 Подключение к Weaviate через HTTP...")
-            # Подключаемся к локальному серверу Weaviate, который поднят через Docker
-            self.client = weaviate.Client(url="http://localhost:8082")
-
+            logger.info("🔌 Подключение к Weaviate...")
+            self.client = weaviate.WeaviateClient(
+                    connection=weaviate.Connection(
+                    url="http://localhost:8082",
+                    additional_headers={},
+                    )
+            )
             if not self.client.is_ready():
                 logger.error("❌ Weaviate не готов!")
                 return False
-
             logger.info("✅ Подключено к Weaviate")
             self._create_schemas()
             return True
-
         except Exception as e:
             logger.error(f"❌ Ошибка подключения: {e}")
             self.client = None

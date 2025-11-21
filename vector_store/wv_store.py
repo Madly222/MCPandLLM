@@ -5,6 +5,7 @@ from datetime import datetime
 
 import weaviate
 from weaviate.classes.config import Property, DataType, Configure
+from weaviate.classes.query import Filter
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -103,7 +104,7 @@ class WeaviateStore:
                 if not self.client.collections.exists(schema["name"]):
                     self.client.collections.create(
                         name=schema["name"],
-                        vector_config=Configure.Vectorizer.text2vec_transformers(),
+                        vectorizer_config=Configure.Vectorizer.text2vec_transformers(),
                         properties=schema["properties"]  # ← Эта строка должна быть на одном уровне с vector_config
                     )
                     logger.info(f"✅ Создана схема {schema['name']}")
@@ -147,7 +148,7 @@ class WeaviateStore:
                 query=query,
                 limit=limit,
                 return_properties=["content", "filename", "filetype"],
-                filters=collection.filter.by_property("user_id").equal(user_id)
+                where=Filter.by_property("user_id").equal(user_id)
             )
 
             return [
@@ -192,7 +193,7 @@ class WeaviateStore:
                 query=query,
                 limit=limit,
                 return_properties=["fact"],
-                filters=collection.filter.by_property("user_id").equal(user_id)
+                where=Filter.by_property("user_id").equal(user_id)
             )
             return [obj.properties["fact"] for obj in response.objects]
         except Exception as e:
@@ -225,7 +226,7 @@ class WeaviateStore:
                 query=query,
                 limit=limit,
                 return_properties=["message", "role", "timestamp"],
-                filters=collection.filter.by_property("user_id").equal(user_id)
+                where=Filter.by_property("user_id").equal(user_id)
             )
             return [
                 {"message": obj.properties["message"],

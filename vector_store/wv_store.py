@@ -288,6 +288,7 @@ if __name__ == "__main__":
         print("✅ WeaviateStore подключен и готов к работе!")
         stats = vector_store.get_stats()
         print(f"📊 Статистика: {stats}")
+        vector_store.disconnect()  # ← Добавьте эту строку
     else:
         print("❌ Ошибка подключения к WeaviateStore")
 

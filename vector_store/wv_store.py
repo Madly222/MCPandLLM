@@ -104,9 +104,7 @@ class WeaviateStore:
                     self.client.collections.create(
                         name=schema["name"],
                         vector_config=Configure.Vectorizer.text2vec_transformers(),
-                            model="text-embedding-3-small"
-                        ) if self.openai_api_key else None,
-                        properties=schema["properties"]
+                        properties=schema["properties"]  # ← Эта строка должна быть на одном уровне с vector_config
                     )
                     logger.info(f"✅ Создана схема {schema['name']}")
             except Exception as e:

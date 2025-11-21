@@ -1,3 +1,4 @@
+# vector_store.py
 import os
 import logging
 from typing import List, Dict, Optional
@@ -7,6 +8,7 @@ import weaviate
 from weaviate.classes.config import Property, DataType, Configure
 from weaviate.classes.query import Filter
 from dotenv import load_dotenv
+from pathlib import Path
 
 load_dotenv()
 
@@ -28,14 +30,12 @@ class WeaviateStore:
         try:
             logger.info(f"🔌 Подключение к Weaviate на {self.host}:{self.port}...")
 
-            # ✅ ПРАВИЛЬНЫЙ способ для Weaviate v4
+            # Используем helper из твой версии клиента
             self.client = weaviate.connect_to_local(
                 host=self.host,
                 port=self.port,
-                grpc_port=50051,  # gRPC порт (обычно 50051)
-                headers={
-                    "X-OpenAI-Api-Key": self.openai_api_key
-                } if self.openai_api_key else None
+                grpc_port=50051,
+                headers={"X-OpenAI-Api-Key": self.openai_api_key} if self.openai_api_key else None
             )
 
             if not self.client.is_ready():
@@ -54,12 +54,15 @@ class WeaviateStore:
     def is_connected(self) -> bool:
         try:
             return self.client is not None and self.client.is_ready()
-        except:
+        except Exception:
             return False
 
     def disconnect(self):
         if self.client:
-            self.client.close()
+            try:
+                self.client.close()
+            except Exception:
+                pass
         logger.info("🔌 Отключено от Weaviate")
 
     # ------------------- Создание схем -------------------
@@ -76,6 +79,7 @@ class WeaviateStore:
                     Property(name="filetype", data_type=DataType.TEXT),
                     Property(name="user_id", data_type=DataType.TEXT),
                     Property(name="created_at", data_type=DataType.TEXT),
+                    Property(name="source_path", data_type=DataType.TEXT),
                 ]
             },
             {
@@ -105,7 +109,7 @@ class WeaviateStore:
                     self.client.collections.create(
                         name=schema["name"],
                         vectorizer_config=Configure.Vectorizer.text2vec_transformers(),
-                        properties=schema["properties"]  # ← Эта строка должна быть на одном уровне с vector_config
+                        properties=schema["properties"]
                     )
                     logger.info(f"✅ Создана схема {schema['name']}")
             except Exception as e:
@@ -123,13 +127,16 @@ class WeaviateStore:
             added = 0
 
             for chunk in chunks:
-                collection.data.insert({
+                props = {
                     "content": chunk,
                     "filename": filename,
                     "filetype": filetype,
                     "user_id": user_id,
                     "created_at": datetime.now().isoformat(),
-                })
+                }
+                if metadata and isinstance(metadata, dict):
+                    props["source_path"] = metadata.get("source_path")
+                collection.data.insert(props)
                 added += 1
 
             logger.info(f"✅ Добавлено {added} чанков из '{filename}'")
@@ -144,20 +151,36 @@ class WeaviateStore:
 
         try:
             collection = self.client.collections.get("Document")
+            # Правильный формат для near_text
             response = collection.query.near_text(
-                query=query,
+                query={"concepts": [query]},
                 limit=limit,
-                return_properties=["content", "filename", "filetype"],
+                return_properties=["content", "filename", "filetype", "user_id"],
                 filters=Filter.by_property("user_id").equal(user_id)
             )
+            logger.info("Weaviate search response: %s", getattr(response, "objects", response))
 
-            return [
-                {"content": obj.properties["content"],
-                 "filename": obj.properties["filename"],
-                 "filetype": obj.properties["filetype"],
-                 "score": 1.0}
-                for obj in response.objects
-            ]
+            results = []
+            for obj in getattr(response, "objects", []):
+                props = getattr(obj, "properties", None) or getattr(obj, "props", None) or {}
+                # props может быть dict или объект — нормализуем
+                if hasattr(props, "get"):
+                    content = props.get("content", "")
+                    filename = props.get("filename", "")
+                    filetype = props.get("filetype", "")
+                else:
+                    content = getattr(props, "content", "")
+                    filename = getattr(props, "filename", "")
+                    filetype = getattr(props, "filetype", "")
+
+                score = getattr(obj, "score", 1.0)
+                results.append({
+                    "content": content,
+                    "filename": filename,
+                    "filetype": filetype,
+                    "score": score
+                })
+            return results
         except Exception as e:
             logger.error(f"❌ Ошибка поиска документов: {e}")
             return []
@@ -190,19 +213,26 @@ class WeaviateStore:
         try:
             collection = self.client.collections.get("UserMemory")
             response = collection.query.near_text(
-                query=query,
+                query={"concepts": [query]},
                 limit=limit,
                 return_properties=["fact"],
                 filters=Filter.by_property("user_id").equal(user_id)
             )
-            return [obj.properties["fact"] for obj in response.objects]
+            facts = []
+            for obj in getattr(response, "objects", []):
+                props = getattr(obj, "properties", None) or {}
+                if hasattr(props, "get"):
+                    facts.append(props.get("fact", ""))
+                else:
+                    facts.append(getattr(props, "fact", ""))
+            return facts
         except Exception as e:
             logger.error(f"❌ Ошибка поиска памяти: {e}")
             return []
 
     # ------------------- Работа с чатом -------------------
     def add_chat_message(self, message: str, role: str, user_id: str):
-        if not self.is_connected() or len(message.strip()) < 10:
+        if not self.is_connected() or len(message.strip()) < 1:
             return
 
         try:
@@ -223,17 +253,19 @@ class WeaviateStore:
         try:
             collection = self.client.collections.get("ChatHistory")
             response = collection.query.near_text(
-                query=query,
+                query={"concepts": [query]},
                 limit=limit,
                 return_properties=["message", "role", "timestamp"],
                 filters=Filter.by_property("user_id").equal(user_id)
             )
-            return [
-                {"message": obj.properties["message"],
-                 "role": obj.properties["role"],
-                 "timestamp": obj.properties["timestamp"]}
-                for obj in response.objects
-            ]
+            results = []
+            for obj in getattr(response, "objects", []):
+                props = getattr(obj, "properties", None) or {}
+                message = props.get("message") if hasattr(props, "get") else getattr(props, "message", "")
+                role = props.get("role") if hasattr(props, "get") else getattr(props, "role", "")
+                timestamp = props.get("timestamp") if hasattr(props, "get") else getattr(props, "timestamp", "")
+                results.append({"message": message, "role": role, "timestamp": timestamp})
+            return results
         except Exception as e:
             logger.error(f"❌ Ошибка поиска истории: {e}")
             return []
@@ -272,16 +304,21 @@ class WeaviateStore:
         except Exception as e:
             logger.error(f"❌ Ошибка очистки данных: {e}")
 
-    # ✅ ПЕРЕМЕСТИЛ ВНУТРЬ КЛАССА
-    def _split_into_chunks(self, text: str, max_words: int = 500) -> List[str]:
-        """Разбиение текста на чанки"""
+    def _split_into_chunks(self, text: str, max_words: int = 150, overlap: int = 25) -> List[str]:
+        """Разбиение текста на чанки с overlap"""
         words = text.split()
         if not words:
             return [text]
-        return [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
+        chunks = []
+        i = 0
+        while i < len(words):
+            chunk = words[i:i + max_words]
+            chunks.append(" ".join(chunk))
+            i += max_words - overlap
+        return chunks
 
 
-# ------------------- Глобальный экземпляр -------------------
+# Глобальный экземпляр
 vector_store = WeaviateStore()
 
 if __name__ == "__main__":
@@ -289,7 +326,6 @@ if __name__ == "__main__":
         print("✅ WeaviateStore подключен и готов к работе!")
         stats = vector_store.get_stats()
         print(f"📊 Статистика: {stats}")
-        vector_store.disconnect()  # ← Добавьте эту строку
+        vector_store.disconnect()
     else:
         print("❌ Ошибка подключения к WeaviateStore")
-

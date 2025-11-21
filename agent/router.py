@@ -1,3 +1,4 @@
+# agent/router.py
 from agent.memory import memory
 from tools.file_tool import try_handle_file_command, select_file, read_file
 from tools.excel_tool import read_excel, select_excel_file
@@ -5,6 +6,9 @@ from tools.utils import BASE_FILES_DIR
 from vector_store import vector_store
 import re
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 async def route_message(messages: list, user_id: str):
@@ -14,26 +18,21 @@ async def route_message(messages: list, user_id: str):
     # --- проверка ожидаемого выбора файла ---
     if state.get("awaiting_file_choice"):
         if state.get("awaiting_excel_choice"):
-            # Выбор Excel файла
             chosen_text = select_excel_file(user_id, last_user_msg)
             messages.append({"role": "assistant", "content": chosen_text})
 
-            # Автоматическая индексация в векторную БД
             selected_file = _get_selected_file(user_id, last_user_msg)
             if selected_file:
                 _index_file_to_vector_store(selected_file, user_id)
 
-            # Сброс состояния выбора файлов
             state["awaiting_file_choice"] = False
             state["awaiting_excel_choice"] = False
             memory.set_state(user_id, state)
             return messages[-1]["content"], messages
         else:
-            # Выбор обычного файла
             chosen_text = select_file(user_id, last_user_msg)
             messages.append({"role": "assistant", "content": chosen_text})
 
-            # Автоматическая индексация в векторную БД
             selected_file = _get_selected_file(user_id, last_user_msg)
             if selected_file:
                 _index_file_to_vector_store(selected_file, user_id)
@@ -44,7 +43,6 @@ async def route_message(messages: list, user_id: str):
 
     # --- команда семантического поиска ---
     if re.search(r"(найди|поиск|найди в файлах|search)", last_user_msg, re.I):
-        # Извлекаем поисковый запрос
         query = re.sub(r"(найди|поиск|найди в файлах|search)\s*", "", last_user_msg, flags=re.I).strip()
         if query:
             result = _perform_search(query, user_id)
@@ -62,7 +60,6 @@ async def route_message(messages: list, user_id: str):
     # --- проверка команды открытия Excel файла ---
     if any(ext in last_user_msg.lower() for ext in ["excel", ".xlsx", ".xls"]):
         text = last_user_msg.lower()
-        # удаляем служебные слова и расширения
         text = re.sub(r"(открой|прочитай|покажи|excel)", "", text)
         for ext in [".xlsx", ".xls"]:
             text = text.replace(ext, "")
@@ -75,14 +72,12 @@ async def route_message(messages: list, user_id: str):
         ]
 
         if not matched_files:
-            messages.append(
-                {"role": "assistant", "content": f"Excel файл с ключевыми словами '{last_user_msg}' не найден."})
+            messages.append({"role": "assistant", "content": f"Excel файл с ключевыми словами '{last_user_msg}' не найден."})
             return messages[-1]["content"], messages
         elif len(matched_files) == 1:
             content = read_excel(matched_files[0].name)
             messages.append({"role": "assistant", "content": content})
 
-            # Автоматическая индексация в векторную БД
             _index_file_to_vector_store(matched_files[0], user_id, content)
 
             return messages[-1]["content"], messages
@@ -101,7 +96,6 @@ async def route_message(messages: list, user_id: str):
     if file_result:
         messages.append({"role": "assistant", "content": file_result})
 
-        # Попытка индексации (если файл был открыт)
         if not file_result.startswith("Найдено несколько"):
             _auto_index_last_file(user_id, file_result)
 
@@ -111,14 +105,51 @@ async def route_message(messages: list, user_id: str):
     return None, messages
 
 
-# === Вспомогательные функции для работы с векторной БД ===
+# === Вспомогательные функции ===
+
+def brute_force_search_files(query: str, user_id: str, max_results: int = 5):
+    """Ищем точную подстроку query в исходных файлах (регистронезависимо)."""
+    q = query.lower()
+    hits = []
+    for f in BASE_FILES_DIR.iterdir():
+        if not f.is_file():
+            continue
+        try:
+            text = read_file(f)
+            if not text or text.startswith("Ошибка"):
+                continue
+            if q in text.lower():
+                start = text.lower().index(q)
+                begin = max(0, start - 120)
+                end = min(len(text), start + len(q) + 120)
+                snippet = text[begin:end].strip().replace("\n", " ")
+                hits.append({
+                    "content": snippet,
+                    "filename": f.name,
+                    "filetype": f.suffix.lstrip("."),
+                    "score": 1.0
+                })
+                if len(hits) >= max_results:
+                    break
+        except Exception:
+            continue
+    return hits
+
 
 def _perform_search(query: str, user_id: str) -> str:
-    """Выполнение семантического поиска"""
+    """Выполнение семантического поиска + фоллбек"""
     if not vector_store.is_connected():
         return "❌ Векторная БД не подключена. Поиск недоступен."
 
+    logger.info("Поиск в Weaviate: '%s' for user %s", query, user_id)
     results = vector_store.search_documents(query, user_id, limit=5)
+
+    # Если семантика вернула пусто — пробуем brute-force по исходным файлам
+    if not results:
+        logger.info("Weaviate вернул 0 результатов — пытаемся прямой поиск по файлам")
+        fb = brute_force_search_files(query, user_id, max_results=5)
+        if fb:
+            results = fb
 
     if not results:
         return "❌ Ничего не найдено в ваших документах"
@@ -128,9 +159,8 @@ def _perform_search(query: str, user_id: str) -> str:
         content_preview = doc["content"][:300]
         if len(doc["content"]) > 300:
             content_preview += "..."
-
         result_lines.append(
-            f"📄 **{i}. {doc['filename']}** ({doc['filetype']})\n"
+            f"📄 **{i}. {doc.get('filename','(unnamed)')}** ({doc.get('filetype','')})\n"
             f"{content_preview}\n"
         )
 
@@ -138,7 +168,6 @@ def _perform_search(query: str, user_id: str) -> str:
 
 
 def _add_to_memory(fact: str, user_id: str) -> str:
-    """Добавление факта в долговременную память"""
     if not vector_store.is_connected():
         return "❌ Векторная БД не подключена. Память недоступна."
 
@@ -151,7 +180,6 @@ def _add_to_memory(fact: str, user_id: str) -> str:
 
 
 def _index_file_to_vector_store(filepath: Path, user_id: str, content: str = None):
-    """Индексация файла в векторную БД"""
     if not vector_store.is_connected():
         return
 
@@ -164,29 +192,28 @@ def _index_file_to_vector_store(filepath: Path, user_id: str, content: str = Non
                 content=content,
                 filename=filepath.name,
                 filetype=filepath.suffix.lstrip('.'),
-                user_id=user_id
+                user_id=user_id,
+                metadata={"source_path": str(filepath)}
             )
 
             if result["success"]:
-                print(f"✅ {filepath.name} проиндексирован")
+                logger.info(f"✅ {filepath.name} проиндексирован")
     except Exception as e:
-        print(f"Ошибка индексации {filepath.name}: {e}")
+        logger.error(f"Ошибка индексации {filepath.name}: {e}")
 
 
 def _get_selected_file(user_id: str, choice: str) -> Path:
-    """Получение выбранного файла по номеру"""
     try:
         matched_files = memory.get_user_files(user_id)
         idx = int(choice.strip()) - 1
         if 0 <= idx < len(matched_files):
             return matched_files[idx]
-    except:
+    except Exception:
         pass
     return None
 
 
 def _auto_index_last_file(user_id: str, content: str):
-    """Автоматическая индексация последнего открытого файла"""
     matched_files = memory.get_user_files(user_id)
     if matched_files and len(matched_files) == 1:
         _index_file_to_vector_store(matched_files[0], user_id, content)

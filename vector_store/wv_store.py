@@ -4,10 +4,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 import weaviate
-from weaviate.embedded import EmbeddedOptions
 from weaviate.classes.config import Property, DataType, Configure
-from weaviate.classes.init import AdditionalConfig, Timeout
-
 from dotenv import load_dotenv
 
 load_dotenv()  # Загружаем ключи из .env
@@ -15,9 +12,7 @@ load_dotenv()  # Загружаем ключи из .env
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-
 class WeaviateStore:
-    """Weaviate Embedded 4.x storage: Documents, UserMemory, ChatHistory"""
 
     def __init__(self, persistence_dir: str = "./weaviate_data"):
         self.persistence_dir = persistence_dir
@@ -29,18 +24,14 @@ class WeaviateStore:
 
     # ------------------- Подключение -------------------
     def connect(self) -> bool:
-        """Запуск Weaviate Embedded и создание схем"""
+        """Подключение к локальному Weaviate через HTTP"""
         try:
-            logger.info("🔌 Подключение к Weaviate Embedded...")
-            self.client = weaviate.WeaviateClient(
-                embedded_options=EmbeddedOptions(
-                    persistence_data_path=self.persistence_dir
-                ),
-                additional_config=AdditionalConfig(
-                    timeout=Timeout(init=30, query=60, insert=120)
-                ),
-            )
-            logger.info("✅ Подключено к Weaviate Embedded")
+            logger.info("🔌 Подключение к Weaviate...")
+            self.client = weaviate.Client(url="http://127.0.0.1:8079")
+            if not self.client.is_ready():
+                logger.error("❌ Weaviate не готов!")
+                return False
+            logger.info("✅ Подключено к Weaviate")
             self._create_schemas()
             return True
         except Exception as e:
@@ -53,12 +44,11 @@ class WeaviateStore:
 
     def disconnect(self):
         if self.client:
-            self.client.close()
+            self.client = None
             logger.info("🔌 Отключено от Weaviate")
 
     # ------------------- Создание схем -------------------
     def _create_schemas(self):
-        """Документы, Чат, Память"""
         if not self.is_connected():
             return
 
@@ -267,15 +257,19 @@ class WeaviateStore:
         except Exception as e:
             logger.error(f"❌ Ошибка очистки данных: {e}")
 
-    # ------------------- Вспомогательные методы -------------------
-    @staticmethod
-    def _split_into_chunks(text: str, max_words: int = 500) -> List[str]:
-        words = text.split()
-        return [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
-
+# ------------------- Вспомогательные методы -------------------
+@staticmethod
+def _split_into_chunks(text: str, max_words: int = 500) -> List[str]:
+    words = text.split()
+    return [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
 
 # ------------------- Глобальный экземпляр -------------------
+
 vector_store = WeaviateStore()
 
 if __name__ == "__main__":
-    print("WeaviateStore loaded successfully")
+    if vector_store.connect():
+        print("WeaviateStore подключен и готов к работе!")
+    else:
+        print("Ошибка подключения к WeaviateStore")
+

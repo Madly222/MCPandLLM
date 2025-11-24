@@ -3,7 +3,7 @@ from agent.memory import memory
 from tools.file_tool import try_handle_file_command, select_file, read_file
 from tools.excel_tool import read_excel, select_excel_file
 from tools.utils import BASE_FILES_DIR
-from tools.chunking_tool import index_file
+from tools.indexing_tool import index_file
 from tools.search_tool import perform_search
 from vector_store import vector_store
 from pathlib import Path

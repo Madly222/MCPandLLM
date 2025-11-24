@@ -2,7 +2,7 @@
 
 import argparse
 from pathlib import Path
-from tools.chunking_tool import index_file, index_all_files
+from tools.indexing_tool import index_file, index_all_files
 from tools.search_tool import search_documents
 from vector_store import vector_store
 

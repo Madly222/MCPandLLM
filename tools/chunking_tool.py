@@ -31,11 +31,25 @@ def index_file(filepath: Path, user_id: str = None):
         return
 
     ext = filepath.suffix.lower()
+    content = ""
+
     if ext in [".txt", ".pdf", ".docx"]:
         content = read_file(filepath)
     elif ext in [".xlsx", ".xls"]:
         rows = read_excel(filepath.name)
-        content = "\n".join(rows) if isinstance(rows, list) else str(rows)
+        if isinstance(rows, list):
+            # Преобразуем каждую строку (dict или список) в строку
+            processed_rows = []
+            for row in rows:
+                if isinstance(row, dict):
+                    processed_rows.append(", ".join(f"{k}: {v}" for k, v in row.items()))
+                elif isinstance(row, list):
+                    processed_rows.append(", ".join(str(cell) for cell in row))
+                else:
+                    processed_rows.append(str(row))
+            content = "\n".join(processed_rows)
+        else:
+            content = str(rows)
     else:
         print(f"❌ Формат файла не поддерживается: {filepath}")
         return

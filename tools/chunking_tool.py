@@ -34,18 +34,16 @@ def chunk_text_with_overlap(text: str, max_words: int = 500, overlap_words: int 
     return chunks
 
 
-def index_file(filepath: Path, user_id: str = None) -> dict:
-    """
-    Индексация файла в общий индекс.
-    Если user_id передан → можно использовать для фильтров (но не сохраняем в Document)
-    """
+def index_file(filepath: Path, user_id: str = "default") -> dict:
+    """Индексация одного файла с улучшенным chunking"""
     if not filepath.exists():
         return {"success": False, "message": "Файл не найден"}
 
     try:
-        # Чтение содержимого
+        # Читаем содержимое
         if filepath.suffix.lower() in ['.xlsx', '.xls']:
             content = read_excel(filepath.name)
+            # ✅ Конвертируем list в строку
             if isinstance(content, list):
                 content = "\n".join(str(row) for row in content)
         else:
@@ -55,6 +53,28 @@ def index_file(filepath: Path, user_id: str = None) -> dict:
             return {"success": False, "message": "Ошибка чтения"}
 
         content = str(content)
+
+        # ✅ Для таблиц - БЕЗ chunking (если меньше 2000 слов)
+        if filepath.suffix.lower() in ['.xlsx', '.xls']:
+            word_count = len(content.split())
+
+            if word_count <= 2000:  # Маленькие таблицы целиком
+                result = vector_store.add_document(
+                    content=content,
+                    filename=filepath.name,
+                    filetype=filepath.suffix.lstrip('.'),
+                    user_id=user_id,
+                    metadata={
+                        "chunk_index": 0,
+                        "total_chunks": 1,
+                        "source_path": str(filepath),
+                        "is_table": True  # Маркер таблицы
+                    }
+                )
+                logger.info(f"✅ {filepath.name}: 1 чанк (целая таблица)")
+                return {"success": True, "chunks": 1}
+
+        # Для больших файлов и не-таблиц - chunking с overlap
         chunks = chunk_text_with_overlap(content, max_words=500, overlap_words=50)
 
         for idx, chunk in enumerate(chunks):
@@ -62,13 +82,14 @@ def index_file(filepath: Path, user_id: str = None) -> dict:
                 content=chunk,
                 filename=filepath.name,
                 filetype=filepath.suffix.lstrip('.'),
-                user_id="shared",  # Все файлы идут в общий индекс
+                user_id=user_id,
                 metadata={
                     "chunk_index": idx,
                     "total_chunks": len(chunks),
                     "source_path": str(filepath)
                 }
             )
+
             if not result.get("success"):
                 logger.warning(f"Ошибка индексации чанка {idx} из {filepath.name}")
 

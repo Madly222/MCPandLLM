@@ -7,6 +7,8 @@ from fastapi.staticfiles import StaticFiles
 from agent.agent import agent_process
 from vector_store import vector_store
 from tools.file_tool import read_file
+from fastapi import UploadFile, File
+from tools.upload_tool import save_and_index_file
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,9 +86,22 @@ async def query(request: Request):
     logger.info(f"Получен запрос от user_id={user_id}: {prompt}")
 
     try:
+        # При поиске используем общий индекс
         response = await agent_process(prompt, user_id)
         return {"response": response}
     except Exception as e:
         logger.exception(f"Ошибка обработки запроса user_id={user_id}")
         return {"response": f"Ошибка при обработке запроса: {e}"}
 
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...), user_id: str = "default"):
+    try:
+        file_bytes = await file.read()
+        success = save_and_index_file(file_bytes, file.filename, user_id=user_id)
+        if success:
+            return {"message": f"Файл {file.filename} успешно загружен и проиндексирован"}
+        else:
+            raise HTTPException(status_code=500, detail="Ошибка при сохранении или индексации файла")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при загрузке файла: {e}")

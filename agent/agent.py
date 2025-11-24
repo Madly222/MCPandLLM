@@ -8,11 +8,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+DOC_INDEX_USER_ID = "shared"  # Общий индекс для всех документов
 
 async def agent_process(prompt: str, user_id: str):
     history = memory.get_history(user_id) or []
 
-    rag_context = _get_rag_context(prompt, user_id)
+    rag_context = _get_rag_context(prompt)
 
     enhanced_system_prompt = SYSTEM_PROMPT
     if rag_context:
@@ -38,29 +39,33 @@ async def agent_process(prompt: str, user_id: str):
     return result
 
 
-def _get_rag_context(query: str, user_id: str, max_length: int = 2000) -> str:
+def _get_rag_context(query: str, max_length: int = 2000) -> str:
+    """Получение контекста из общих документов и памяти пользователя"""
     if not vector_store.is_connected():
         return ""
 
     try:
         context_parts = []
 
-        doc_results = vector_store.search_documents(query, user_id, limit=3)
+        # Поиск по общему индексу документов
+        doc_results = vector_store.search_documents(query, DOC_INDEX_USER_ID, limit=3)
         if doc_results:
-            context_parts.append("**Из ваших документов:**")
+            context_parts.append("**Из документов:**")
             for doc in doc_results:
                 content_preview = doc["content"][:300]
                 if len(doc["content"]) > 300:
                     content_preview += "..."
                 context_parts.append(f"• [{doc['filename']}]: {content_preview}")
 
-        user_facts = vector_store.search_memory(query, user_id, limit=2)
+        # Поиск по памяти пользователя
+        user_facts = vector_store.search_memory(query, DOC_INDEX_USER_ID, limit=2)
         if user_facts:
             context_parts.append("\n**Что я знаю о вас:**")
             for fact in user_facts:
                 context_parts.append(f"• {fact}")
 
-        chat_history = vector_store.search_chat_history(query, user_id, limit=2)
+        # Прошлые сообщения пользователя
+        chat_history = vector_store.search_chat_history(query, DOC_INDEX_USER_ID, limit=2)
         if chat_history:
             context_parts.append("\n**Из прошлых разговоров:**")
             for chat in chat_history:

@@ -43,11 +43,17 @@ def index_file(filepath: Path, user_id: str = "default") -> dict:
         # Читаем содержимое
         if filepath.suffix.lower() in ['.xlsx', '.xls']:
             content = read_excel(filepath.name)
+            # ✅ Конвертируем list в строку
+            if isinstance(content, list):
+                content = "\n".join(str(row) for row in content)
         else:
             content = read_file(filepath)
 
         if not content or str(content).startswith(("Ошибка", "Файл")):
             return {"success": False, "message": "Ошибка чтения"}
+
+        # ✅ Убеждаемся что это строка
+        content = str(content)
 
         # Разбиваем на чанки с overlap
         chunks = chunk_text_with_overlap(content, max_words=500, overlap_words=50)

@@ -298,7 +298,7 @@ class WeaviateStore:
             for name in ["Document", "UserMemory", "ChatHistory"]:
                 collection = self.client.collections.get(name)
                 collection.data.delete_many(
-                    where=collection.filter.by_property("user_id").equal(user_id)
+                    where=Filter.by_property("user_id").equal(user_id)
                 )
             logger.info(f"✅ Данные пользователя {user_id} удалены")
         except Exception as e:

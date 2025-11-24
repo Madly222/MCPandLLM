@@ -2,10 +2,9 @@
 from pathlib import Path
 from typing import List
 from vector_store import vector_store
+from tools.utils import BASE_FILES_DIR
 from tools.file_tool import read_file
 from tools.excel_tool import read_excel
-from tools.utils import BASE_FILES_DIR
-
 CHUNK_SIZE = 500  # символы или приблизительные токены
 OVERLAP = 50
 
@@ -86,3 +85,25 @@ def reindex_all_files(user_id: str = None):
     print("🔄 Начинаем переиндексацию всех файлов...")
     index_all_files(user_id=user_id)
     print("✅ Переиндексация завершена.")
+
+
+def read_file_content(filepath: Path) -> str:
+    """Универсальное чтение файла (txt, pdf, docx, excel)"""
+    ext = filepath.suffix.lower()
+
+    if ext in [".txt", ".pdf", ".docx"]:
+        return read_file(filepath)
+
+    elif ext in [".xlsx", ".xls"]:
+        # read_excel может возвращать list[str] или DataFrame
+        content = read_excel(filepath.name)
+
+        # если list, соединяем в одну строку
+        if isinstance(content, list):
+            return "\n".join(content)
+        elif isinstance(content, str):
+            return content
+        else:
+            return str(content)
+    else:
+        return f"Ошибка: формат {ext} не поддерживается"

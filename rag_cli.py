@@ -47,5 +47,5 @@ def main():
 
     vector_store.disconnect()
 
-    if __name__ == "**main**":
-        main()
+if __name__ == "__main__":
+    main()

@@ -2,7 +2,7 @@
 from pathlib import Path
 import logging
 from vector_store.wv_store import WeaviateStore
-from tools.chunking_tool import index_file
+from tools.indexing_tool import index_file
 import os
 
 logger = logging.getLogger(__name__)

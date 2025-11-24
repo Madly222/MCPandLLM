@@ -4,31 +4,23 @@ from openpyxl import load_workbook, Workbook
 from agent.memory import memory
 from tools.utils import BASE_FILES_DIR
 
-# Количество строк на один чанк для индексации
-CHUNK_SIZE = 10
-
 def read_excel(filename: str) -> List[str]:
     """
-    Возвращает список чанков (по CHUNK_SIZE строк) для каждой таблицы в Excel.
+    Возвращает список строк из всех листов Excel файла.
     """
     path = BASE_FILES_DIR / filename
     if not path.exists():
         return [f"Файл '{filename}' не найден."]
     try:
         wb = load_workbook(path)
-        chunks = []
+        all_rows = []
         for sheet in wb.sheetnames:
             ws = wb[sheet]
-            data_rows = []
+            sheet_rows = []
             for row in ws.iter_rows(values_only=True):
-                data_rows.append([str(cell) if cell is not None else "" for cell in row])
-
-            # Разделяем на чанки
-            for i in range(0, len(data_rows), CHUNK_SIZE):
-                chunk_rows = data_rows[i:i+CHUNK_SIZE]
-                chunk_text = f"Лист: {sheet}\n" + "\n".join([", ".join(r) for r in chunk_rows])
-                chunks.append(chunk_text)
-        return chunks
+                sheet_rows.append([str(cell) if cell is not None else "" for cell in row])
+            all_rows.append({"sheet": sheet, "rows": sheet_rows})
+        return all_rows
     except Exception as e:
         return [f"Ошибка при чтении Excel: {e}"]
 
@@ -51,10 +43,10 @@ def write_excel(filename: str, sheet_name: str, data: list) -> str:
     wb.save(path)
     return f"Файл '{filename}' успешно обновлён."
 
-def select_excel_file(user_id: str, choice: str) -> Optional[List[str]]:
+def select_excel_file(user_id: str, choice: str) -> Optional[List[dict]]:
     matched_files = memory.get_user_files(user_id)
     if not matched_files:
-        return ["Сначала выполните команду поиска Excel файла."]
+        return [ {"error": "Сначала выполните команду поиска Excel файла."} ]
     try:
         index = int(choice.strip()) - 1
         if 0 <= index < len(matched_files):
@@ -67,4 +59,4 @@ def select_excel_file(user_id: str, choice: str) -> Optional[List[str]]:
             return read_excel(selected_file.name)
     except Exception:
         pass
-    return ["Некорректный выбор файла. Введите номер из списка."]
+    return [ {"error": "Некорректный выбор файла. Введите номер из списка."} ]

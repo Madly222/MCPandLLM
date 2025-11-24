@@ -47,5 +47,12 @@ def main():
 
     vector_store.disconnect()
 
+def close_store():
+    """Закрывает соединение с Weaviate для предотвращения утечек ресурсов."""
+    if hasattr(vector_store, "client") and vector_store.client:
+        vector_store.client.close()
+        print("🔌 Соединение с Weaviate закрыто.")
+
 if __name__ == "__main__":
     main()
+    close_store()

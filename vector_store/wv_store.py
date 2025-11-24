@@ -198,19 +198,12 @@ class WeaviateStore:
         try:
             collection = self.client.collections.get("UserMemory")
             response = collection.query.near_text(
-                query={"concepts": [query]},
+                query,  # ✅ Просто строка
                 limit=limit,
                 return_properties=["fact"],
                 filters=Filter.by_property("user_id").equal(user_id)
             )
-            facts = []
-            for obj in getattr(response, "objects", []):
-                props = getattr(obj, "properties", None) or {}
-                if hasattr(props, "get"):
-                    facts.append(props.get("fact", ""))
-                else:
-                    facts.append(getattr(props, "fact", ""))
-            return facts
+            return [obj.properties["fact"] for obj in response.objects]
         except Exception as e:
             logger.error(f"❌ Ошибка поиска памяти: {e}")
             return []
@@ -238,19 +231,19 @@ class WeaviateStore:
         try:
             collection = self.client.collections.get("ChatHistory")
             response = collection.query.near_text(
-                query={"concepts": [query]},
+                query,  # ✅ Просто строка
                 limit=limit,
                 return_properties=["message", "role", "timestamp"],
                 filters=Filter.by_property("user_id").equal(user_id)
             )
-            results = []
-            for obj in getattr(response, "objects", []):
-                props = getattr(obj, "properties", None) or {}
-                message = props.get("message") if hasattr(props, "get") else getattr(props, "message", "")
-                role = props.get("role") if hasattr(props, "get") else getattr(props, "role", "")
-                timestamp = props.get("timestamp") if hasattr(props, "get") else getattr(props, "timestamp", "")
-                results.append({"message": message, "role": role, "timestamp": timestamp})
-            return results
+            return [
+                {
+                    "message": obj.properties["message"],
+                    "role": obj.properties["role"],
+                    "timestamp": obj.properties["timestamp"]
+                }
+                for obj in response.objects
+            ]
         except Exception as e:
             logger.error(f"❌ Ошибка поиска истории: {e}")
             return []

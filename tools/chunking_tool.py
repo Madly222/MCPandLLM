@@ -88,22 +88,15 @@ def reindex_all_files(user_id: str = None):
 
 
 def read_file_content(filepath: Path) -> str:
-    """Универсальное чтение файла (txt, pdf, docx, excel)"""
     ext = filepath.suffix.lower()
-
     if ext in [".txt", ".pdf", ".docx"]:
-        return read_file(filepath)
-
+        content = read_file(filepath)
     elif ext in [".xlsx", ".xls"]:
-        # read_excel может возвращать list[str] или DataFrame
-        content = read_excel(filepath.name)
-
-        # если list, соединяем в одну строку
-        if isinstance(content, list):
-            return "\n".join(content)
-        elif isinstance(content, str):
-            return content
+        rows = read_excel(filepath.name)
+        if isinstance(rows, list):
+            content = "\n".join(rows)  # объединяем все строки в одну строку
         else:
-            return str(content)
+            content = str(rows)
     else:
-        return f"Ошибка: формат {ext} не поддерживается"
+        print(f"❌ Формат файла не поддерживается: {filepath}")
+        return

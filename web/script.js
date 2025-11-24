@@ -3,38 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendBtn = document.getElementById('sendBtn');
     const chatContainer = document.getElementById('chat-container');
 
-    const uploadBtn = document.getElementById('uploadBtn');
-    const fileInput = document.getElementById('fileInput');
-
-    uploadBtn.addEventListener('click', () => {
-        fileInput.click(); // открываем диалог выбора файла
-    });
-
-    fileInput.addEventListener('change', async () => {
-        const file = fileInput.files[0];
-        if (!file) return;
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        try {
-            const res = await fetch('/upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            const data = await res.json();
-            appendChat('Система', data.message || 'Файл загружен');
-
-        } catch (err) {
-            appendChat('Система', 'Ошибка при загрузке файла');
-            console.error(err);
-        }
-
-        // очищаем input
-        fileInput.value = '';
-    });
-
+    // Отправка текстового запроса
     sendBtn.addEventListener('click', sendPrompt);
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') sendPrompt();
@@ -65,19 +34,45 @@ document.addEventListener('DOMContentLoaded', () => {
     function appendChat(role, text) {
         const msgDiv = document.createElement('div');
 
-        if (role === 'Вы') {
-            msgDiv.className = 'message user-msg';
-        } else if (role === 'Помощник') {
-            msgDiv.className = 'message assistant-msg';
-        } else {
-            msgDiv.className = 'message';
-        }
+        if (role === 'Вы') msgDiv.className = 'message user-msg';
+        else if (role === 'Помощник') msgDiv.className = 'message assistant-msg';
+        else msgDiv.className = 'message';
 
         msgDiv.innerText = `${role}:\n${text}`;
         chatContainer.appendChild(msgDiv);
         chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 
+    // ===== Загрузка файлов =====
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileInput = document.getElementById('fileInput');
+
+    uploadBtn.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', async () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("user_id", "default");
+
+        try {
+            const res = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+            appendChat('Система', data.message || `Файл ${file.name} загружен`);
+        } catch (err) {
+            appendChat('Система', 'Ошибка при загрузке файла');
+            console.error(err);
+        }
+    });
+
+    // ===== Tooltip =====
     const tooltip = document.querySelector('.tooltip');
     if (tooltip) {
         const tooltipText = tooltip.querySelector('.tooltiptext');
@@ -123,9 +118,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
 
             if (rectParent.bottom + tooltipHeight > viewportHeight) {
-                innerText.style.top = `${-tooltipHeight}px`; // показываем выше родителя
+                innerText.style.top = `${-tooltipHeight}px`;
             } else {
-                innerText.style.top = `${inner.offsetHeight}px`; // показываем ниже родителя
+                innerText.style.top = `${inner.offsetHeight}px`;
             }
 
             innerText.style.visibility = 'visible';

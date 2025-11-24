@@ -151,36 +151,21 @@ class WeaviateStore:
 
         try:
             collection = self.client.collections.get("Document")
-            # Правильный формат для near_text
+
             response = collection.query.near_text(
-                query={"concepts": [query]},
+                query=query,  # ← Должна быть строка, не dict!
                 limit=limit,
-                return_properties=["content", "filename", "filetype", "user_id"],
+                return_properties=["content", "filename", "filetype"],
                 filters=Filter.by_property("user_id").equal(user_id)
             )
-            logger.info("Weaviate search response: %s", getattr(response, "objects", response))
 
-            results = []
-            for obj in getattr(response, "objects", []):
-                props = getattr(obj, "properties", None) or getattr(obj, "props", None) or {}
-                # props может быть dict или объект — нормализуем
-                if hasattr(props, "get"):
-                    content = props.get("content", "")
-                    filename = props.get("filename", "")
-                    filetype = props.get("filetype", "")
-                else:
-                    content = getattr(props, "content", "")
-                    filename = getattr(props, "filename", "")
-                    filetype = getattr(props, "filetype", "")
-
-                score = getattr(obj, "score", 1.0)
-                results.append({
-                    "content": content,
-                    "filename": filename,
-                    "filetype": filetype,
-                    "score": score
-                })
-            return results
+            return [
+                {"content": obj.properties["content"],
+                 "filename": obj.properties["filename"],
+                 "filetype": obj.properties["filetype"],
+                 "score": 1.0}
+                for obj in response.objects
+            ]
         except Exception as e:
             logger.error(f"❌ Ошибка поиска документов: {e}")
             return []

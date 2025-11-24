@@ -3,6 +3,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendBtn = document.getElementById('sendBtn');
     const chatContainer = document.getElementById('chat-container');
 
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileInput = document.getElementById('fileInput');
+
+    uploadBtn.addEventListener('click', () => {
+        fileInput.click(); // открываем диалог выбора файла
+    });
+
+    fileInput.addEventListener('change', async () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await res.json();
+            appendChat('Система', data.message || 'Файл загружен');
+
+        } catch (err) {
+            appendChat('Система', 'Ошибка при загрузке файла');
+            console.error(err);
+        }
+
+        // очищаем input
+        fileInput.value = '';
+    });
+
     sendBtn.addEventListener('click', sendPrompt);
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') sendPrompt();

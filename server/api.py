@@ -86,11 +86,13 @@ async def query(request: Request):
     logger.info(f"Получен запрос от user_id={user_id}: {prompt}")
 
     try:
-        response = await agent_process(prompt, user_id)
+        # При поиске используем общий индекс
+        response = await agent_process(prompt, user_id, index_user_id="shared")
         return {"response": response}
     except Exception as e:
         logger.exception(f"Ошибка обработки запроса user_id={user_id}")
         return {"response": f"Ошибка при обработке запроса: {e}"}
+
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), user_id: str = "default"):

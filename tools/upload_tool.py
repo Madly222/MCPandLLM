@@ -23,18 +23,19 @@ if not store.is_connected():
 def save_and_index_file(file_bytes: bytes, filename: str, user_id: str = "default") -> bool:
     """
     Сохраняет файл в STORAGE_DIR и индексирует его в Weaviate.
-    Возвращает True, если успешно.
+    Индексация делается в общий индекс, user_id не привязывается к Document.
     """
     try:
         file_path = STORAGE_DIR / filename
         with open(file_path, "wb") as f:
             f.write(file_bytes)
 
-        # Индексация через chunking_tool
-        index_file(file_path, user_id=user_id)
+        # Индексация без user_id, т.к. общий индекс
+        index_file(file_path, user_id=None)  # user_id=None → общий индекс
         logger.info(f"✅ Файл '{filename}' успешно сохранён и проиндексирован")
         return True
 
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении или индексации файла '{filename}': {e}")
         return False
+

@@ -130,3 +130,10 @@ def search_documents(query: str, user_id: str = "default", top_n: int = 5) -> st
         )
 
     return "\n".join(lines)
+
+def perform_search(query: str, user_id: str = "default", top_n: int = 5):
+    """
+    Старый alias для совместимости с router.py.
+    Использует гибридный поиск.
+    """
+    return search_documents(query, user_id, top_n)

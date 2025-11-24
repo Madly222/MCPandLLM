@@ -87,7 +87,7 @@ async def query(request: Request):
 
     try:
         # При поиске используем общий индекс
-        response = await agent_process(prompt, user_id, index_user_id="shared")
+        response = await agent_process(prompt, user_id)
         return {"response": response}
     except Exception as e:
         logger.exception(f"Ошибка обработки запроса user_id={user_id}")

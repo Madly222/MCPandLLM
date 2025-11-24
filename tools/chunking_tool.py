@@ -5,9 +5,16 @@ from vector_store import vector_store
 from tools.utils import BASE_FILES_DIR
 from tools.file_tool import read_file
 from tools.excel_tool import read_excel
+
+from vector_store import WeaviateStore  # твой класс
+
+# создаём глобальный объект, через который будем индексировать
+store = WeaviateStore()
+if not store.is_connected():
+    store.connect()
+
 CHUNK_SIZE = 500  # символы или приблизительные токены
 OVERLAP = 50
-
 
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) -> List[str]:
     """
@@ -25,7 +32,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) 
 
 def index_file(filepath: Path, user_id: str = None):
     """
-    Индексация одного файла в Weaviate.
+    Индексация файла в Weaviate.
     """
     if not filepath.exists() or not filepath.is_file():
         print(f"❌ Файл не найден: {filepath}")
@@ -35,12 +42,17 @@ def index_file(filepath: Path, user_id: str = None):
     if ext in [".txt", ".pdf", ".docx"]:
         content = read_file(filepath)
     elif ext in [".xlsx", ".xls"]:
-        content = read_excel(filepath.name)
+        rows = read_excel(filepath.name)
+        if isinstance(rows, list):
+            content = "\n".join(rows)  # объединяем строки в одну строку
+        else:
+            content = str(rows)
     else:
         print(f"❌ Формат файла не поддерживается: {filepath}")
         return
 
-    if not content or content.startswith("Ошибка"):
+    # Приводим к строке и проверяем на ошибки
+    if not content or (isinstance(content, str) and content.startswith("Ошибка")):
         print(f"❌ Ошибка чтения файла: {filepath.name}")
         return
 
@@ -52,16 +64,9 @@ def index_file(filepath: Path, user_id: str = None):
             "chunk_index": idx,
             "source_path": str(filepath)
         }
-        vector_store.add_document(
-            content=chunk,
-            filename=filepath.name,
-            filetype=ext.lstrip("."),
-            user_id=user_id,
-            metadata=metadata
-        )
+        store.add_document(content=chunk, metadata=metadata, user_id=user_id)
 
     print(f"✅ Файл '{filepath.name}' проиндексирован ({len(chunks)} чанков).")
-
 
 def index_all_files(user_id: str = None):
     """

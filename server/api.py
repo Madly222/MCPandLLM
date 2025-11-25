@@ -32,13 +32,21 @@ else:
 
 
 def load_storage_files():
-    """Загрузка и индексация файлов из storage при старте"""
+    """Загрузка файлов из storage (с проверкой дубликатов)"""
     if not vector_store.is_connected():
-        logger.warning("Weaviate не подключен. Файлы из storage не будут загружены.")
+        logger.warning("Weaviate не подключен.")
         return
 
     if not STORAGE_DIR.exists():
         logger.warning(f"Папка storage не найдена: {STORAGE_DIR}")
+        return
+
+    # Проверяем что уже загружено
+    existing_docs = vector_store.get_all_user_documents(DEFAULT_USER_ID, limit=100)
+    existing_files = {doc["filename"] for doc in existing_docs}
+
+    if existing_files:
+        logger.info(f"📁 Уже загружено {len(existing_files)} файлов, пропускаем")
         return
 
     supported_extensions = {'.txt', '.pdf', '.docx', '.xlsx', '.xls', '.md', '.csv', '.log'}
@@ -50,14 +58,11 @@ def load_storage_files():
             continue
 
         try:
-            # ✅ Используем index_file — он сам разберётся с Excel и чанками
             result = index_file(file_path, DEFAULT_USER_ID)
-
             if result.get("success"):
                 logger.info(f"✅ {file_path.name} загружен ({result.get('chunks', 1)} чанков)")
             else:
                 logger.warning(f"⚠️ {file_path.name}: {result.get('message')}")
-
         except Exception as e:
             logger.error(f"❌ Ошибка при загрузке {file_path.name}: {e}")
 

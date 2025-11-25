@@ -231,6 +231,33 @@ class WeaviateStore:
             logger.error(f"❌ Ошибка поиска истории: {e}")
             return []
 
+    def search_documents(self, query: str, user_id: str, limit: int = 5) -> List[Dict]:
+        """Поиск документов по семантике"""
+        if not self.is_connected():
+            return []
+
+        try:
+            collection = self.client.collections.get("Document")
+
+            response = collection.query.near_text(
+                query,  # ✅ Просто строка
+                limit=limit,
+                return_properties=["content", "filename", "filetype"],
+                filters=Filter.by_property("user_id").equal(user_id)
+            )
+
+            return [
+                {
+                    "content": obj.properties["content"],
+                    "filename": obj.properties["filename"],
+                    "filetype": obj.properties["filetype"],
+                    "score": 1.0
+                }
+                for obj in response.objects
+            ]
+        except Exception as e:
+            logger.error(f"❌ Ошибка поиска документов: {e}")
+            return []
     # ------------------- Утилиты -------------------
     def get_stats(self) -> Dict:
         if not self.is_connected():

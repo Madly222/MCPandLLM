@@ -1,4 +1,4 @@
-# vector_store.py
+# wv_store.py
 import os
 import logging
 from typing import List, Dict, Optional
@@ -124,6 +124,7 @@ class WeaviateStore:
         try:
             collection = self.client.collections.get("Document")
 
+            # ✅ Если это таблица, делаем один чанк
             if metadata and metadata.get("is_table"):
                 chunks = [content]
             else:
@@ -240,7 +241,7 @@ class WeaviateStore:
             collection = self.client.collections.get("Document")
 
             response = collection.query.near_text(
-                query,  # ✅ Просто строка
+                query,  # ✅ передаем просто строку
                 limit=limit,
                 return_properties=["content", "filename", "filetype"],
                 filters=Filter.by_property("user_id").equal(user_id)

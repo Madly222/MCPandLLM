@@ -39,13 +39,12 @@ def chunk_text_with_overlap(text: str, max_words: int = 500, overlap_words: int 
 def read_content(filepath: Path) -> str:
     """Читает файл и всегда возвращает строку"""
     if filepath.suffix.lower() in ['.xlsx', '.xls', '.csv']:
-        content = read_excel(filepath.name)
+        content = read_excel(str(filepath))  # ✅ используем полный путь
         if isinstance(content, list):
             return "\n".join(str(row) for row in content)
         return str(content)
 
     return str(read_file(filepath))
-
 
 def is_table_file(filepath: Path) -> bool:
     return filepath.suffix.lower() in ['.xlsx', '.xls', '.csv']

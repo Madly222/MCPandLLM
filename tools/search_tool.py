@@ -21,15 +21,15 @@ def keyword_search_in_files(query: str, top_n: int = 5) -> List[Dict]:
 
         try:
             # Читаем содержимое
-            if filepath.suffix.lower() in ['.xlsx', '.xls']:
-                content = read_excel(filepath.name)
+            if filepath.suffix.lower() in ['.xlsx', '.xls', '.csv']:
+                content = read_excel(str(filepath))  # ✅ полный путь
             else:
                 content = read_file(filepath)
 
             if not content or str(content).startswith(("Ошибка", "Файл")):
                 continue
 
-            content_lower = content.lower()
+            content_lower = str(content).lower()
 
             # Ищем все вхождения
             start = 0

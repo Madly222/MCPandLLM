@@ -61,9 +61,12 @@ def index_file(filepath: Path, user_id: str = "default") -> dict:
         content = str(content)
 
         # =============================
-        # Таблицы — индексируем целиком в 1 чанке
+        # Таблицы — всегда 1 чанк
         # =============================
         if suffix in ['.xlsx', '.xls']:
+            content_list = read_excel(filepath.name)
+            content = "\n".join(content_list)
+
             result = vector_store.add_document(
                 content=content,
                 filename=filepath.name,
@@ -76,6 +79,7 @@ def index_file(filepath: Path, user_id: str = "default") -> dict:
                     "is_table": True
                 }
             )
+
             if result.get("success"):
                 logger.info(f"✅ {filepath.name}: таблица добавлена целиком (1 чанк)")
                 return {"success": True, "chunks": 1}

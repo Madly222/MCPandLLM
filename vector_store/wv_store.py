@@ -8,7 +8,6 @@ import weaviate
 from weaviate.classes.config import Property, DataType, Configure
 from weaviate.classes.query import Filter
 from dotenv import load_dotenv
-from pathlib import Path
 
 load_dotenv()
 
@@ -30,7 +29,6 @@ class WeaviateStore:
         try:
             logger.info(f"🔌 Подключение к Weaviate на {self.host}:{self.port}...")
 
-            # Используем helper из твой версии клиента
             self.client = weaviate.connect_to_local(
                 host=self.host,
                 port=self.port,
@@ -80,6 +78,9 @@ class WeaviateStore:
                     Property(name="user_id", data_type=DataType.TEXT),
                     Property(name="created_at", data_type=DataType.TEXT),
                     Property(name="source_path", data_type=DataType.TEXT),
+                    Property(name="chunk_index", data_type=DataType.INT),
+                    Property(name="total_chunks", data_type=DataType.INT),
+                    Property(name="is_table", data_type=DataType.BOOL),
                 ]
             },
             {
@@ -118,32 +119,39 @@ class WeaviateStore:
     # ------------------- Работа с документами -------------------
     def add_document(self, content: str, filename: str, filetype: str,
                      user_id: str, metadata: Optional[Dict] = None) -> Dict:
+        """
+        Добавляет документ как есть (без дополнительного chunking).
+        Chunking — ответственность вызывающего кода (index_file.py).
+        """
         if not self.is_connected():
-            return {"success": False, "message": "Weaviate не подключен", "chunks": 0}
+            return {"success": False, "message": "Weaviate не подключен"}
 
         try:
             collection = self.client.collections.get("Document")
-            chunks = self._split_into_chunks(content)
-            added = 0
 
-            for chunk in chunks:
-                props = {
-                    "content": chunk,
-                    "filename": filename,
-                    "filetype": filetype,
-                    "user_id": user_id,
-                    "created_at": datetime.now().isoformat(),
-                }
-                if metadata and isinstance(metadata, dict):
-                    props["source_path"] = metadata.get("source_path")
-                collection.data.insert(props)
-                added += 1
+            props = {
+                "content": content,
+                "filename": filename,
+                "filetype": filetype,
+                "user_id": user_id,
+                "created_at": datetime.now().isoformat(),
+            }
 
-            logger.info(f"✅ Добавлено {added} чанков из '{filename}'")
-            return {"success": True, "message": f"{filename} проиндексирован ({added} частей)", "chunks": added}
+            # Сохраняем ВСЕ метаданные
+            if metadata and isinstance(metadata, dict):
+                props["source_path"] = metadata.get("source_path", "")
+                props["chunk_index"] = metadata.get("chunk_index", 0)
+                props["total_chunks"] = metadata.get("total_chunks", 1)
+                props["is_table"] = metadata.get("is_table", False)
+
+            collection.data.insert(props)
+
+            logger.info(f"✅ Добавлен чанк '{filename}' (is_table={props.get('is_table', False)})")
+            return {"success": True, "message": f"Чанк добавлен"}
+
         except Exception as e:
             logger.error(f"❌ Ошибка добавления документа: {e}")
-            return {"success": False, "message": str(e), "chunks": 0}
+            return {"success": False, "message": str(e)}
 
     def search_documents(self, query: str, user_id: str, limit: int = 5) -> List[Dict]:
         if not self.is_connected():
@@ -153,17 +161,22 @@ class WeaviateStore:
             collection = self.client.collections.get("Document")
 
             response = collection.query.near_text(
-                query=query,  # ← Должна быть строка, не dict!
+                query=query,
                 limit=limit,
-                return_properties=["content", "filename", "filetype"],
+                return_properties=["content", "filename", "filetype", "is_table", "chunk_index", "total_chunks"],
                 filters=Filter.by_property("user_id").equal(user_id)
             )
 
             return [
-                {"content": obj.properties["content"],
-                 "filename": obj.properties["filename"],
-                 "filetype": obj.properties["filetype"],
-                 "score": 1.0}
+                {
+                    "content": obj.properties.get("content", ""),
+                    "filename": obj.properties.get("filename", ""),
+                    "filetype": obj.properties.get("filetype", ""),
+                    "is_table": obj.properties.get("is_table", False),
+                    "chunk_index": obj.properties.get("chunk_index", 0),
+                    "total_chunks": obj.properties.get("total_chunks", 1),
+                    "score": 1.0
+                }
                 for obj in response.objects
             ]
         except Exception as e:
@@ -198,7 +211,7 @@ class WeaviateStore:
         try:
             collection = self.client.collections.get("UserMemory")
             response = collection.query.near_text(
-                query,  # ✅ Просто строка
+                query,
                 limit=limit,
                 return_properties=["fact"],
                 filters=Filter.by_property("user_id").equal(user_id)
@@ -231,7 +244,7 @@ class WeaviateStore:
         try:
             collection = self.client.collections.get("ChatHistory")
             response = collection.query.near_text(
-                query,  # ✅ Просто строка
+                query,
                 limit=limit,
                 return_properties=["message", "role", "timestamp"],
                 filters=Filter.by_property("user_id").equal(user_id)
@@ -281,19 +294,6 @@ class WeaviateStore:
             logger.info(f"✅ Данные пользователя {user_id} удалены")
         except Exception as e:
             logger.error(f"❌ Ошибка очистки данных: {e}")
-
-    def _split_into_chunks(self, text: str, max_words: int = 150, overlap: int = 25) -> List[str]:
-        """Разбиение текста на чанки с overlap"""
-        words = text.split()
-        if not words:
-            return [text]
-        chunks = []
-        i = 0
-        while i < len(words):
-            chunk = words[i:i + max_words]
-            chunks.append(" ".join(chunk))
-            i += max_words - overlap
-        return chunks
 
 
 # Глобальный экземпляр

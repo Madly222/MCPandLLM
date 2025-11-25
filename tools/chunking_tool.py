@@ -35,17 +35,23 @@ def chunk_text_with_overlap(text: str, max_words: int = 500, overlap_words: int 
 
 
 def index_file(filepath: Path, user_id: str = "default") -> dict:
-    """Индексация одного файла с улучшенным chunking"""
+    """Индексация одного файла с улучшенным chunking.
+    Таблицы всегда в 1 чанке, остальные файлы с chunking.
+    """
     if not filepath.exists():
         return {"success": False, "message": "Файл не найден"}
 
     try:
-        # Читаем содержимое
-        if filepath.suffix.lower() in ['.xlsx', '.xls']:
+        suffix = filepath.suffix.lower()
+
+        # =============================
+        # Чтение содержимого
+        # =============================
+        if suffix in ['.xlsx', '.xls']:
             content = read_excel(filepath.name)
-            # ✅ Конвертируем list в строку
+            # Конвертируем list в строку
             if isinstance(content, list):
-                content = "\n".join(str(row) for row in content)
+                content = "\n".join(" ".join(map(str, row)) for row in content)
         else:
             content = read_file(filepath)
 
@@ -54,34 +60,40 @@ def index_file(filepath: Path, user_id: str = "default") -> dict:
 
         content = str(content)
 
-        # ✅ Для таблиц - БЕЗ chunking (если меньше 2000 слов)
-        if filepath.suffix.lower() in ['.xlsx', '.xls']:
-            word_count = len(content.split())
-
-            if word_count <= 2000:  # Маленькие таблицы целиком
-                result = vector_store.add_document(
-                    content=content,
-                    filename=filepath.name,
-                    filetype=filepath.suffix.lstrip('.'),
-                    user_id=user_id,
-                    metadata={
-                        "chunk_index": 0,
-                        "total_chunks": 1,
-                        "source_path": str(filepath),
-                        "is_table": True  # Маркер таблицы
-                    }
-                )
-                logger.info(f"✅ {filepath.name}: 1 чанк (целая таблица)")
+        # =============================
+        # Таблицы — индексируем целиком в 1 чанке
+        # =============================
+        if suffix in ['.xlsx', '.xls']:
+            result = vector_store.add_document(
+                content=content,
+                filename=filepath.name,
+                filetype=suffix.lstrip('.'),
+                user_id=user_id,
+                metadata={
+                    "chunk_index": 0,
+                    "total_chunks": 1,
+                    "source_path": str(filepath),
+                    "is_table": True
+                }
+            )
+            if result.get("success"):
+                logger.info(f"✅ {filepath.name}: таблица добавлена целиком (1 чанк)")
                 return {"success": True, "chunks": 1}
+            else:
+                logger.error(f"❌ Ошибка индексации таблицы {filepath.name}: {result.get('message')}")
+                return {"success": False, "message": result.get("message", "Ошибка добавления")}
 
-        # Для больших файлов и не-таблиц - chunking с overlap
+        # =============================
+        # Остальные файлы — chunking с overlap
+        # =============================
         chunks = chunk_text_with_overlap(content, max_words=500, overlap_words=50)
+        added_chunks = 0
 
         for idx, chunk in enumerate(chunks):
             result = vector_store.add_document(
                 content=chunk,
                 filename=filepath.name,
-                filetype=filepath.suffix.lstrip('.'),
+                filetype=suffix.lstrip('.'),
                 user_id=user_id,
                 metadata={
                     "chunk_index": idx,
@@ -89,16 +101,18 @@ def index_file(filepath: Path, user_id: str = "default") -> dict:
                     "source_path": str(filepath)
                 }
             )
+            if result.get("success"):
+                added_chunks += 1
+            else:
+                logger.warning(f"⚠️ Ошибка индексации чанка {idx} из {filepath.name}")
 
-            if not result.get("success"):
-                logger.warning(f"Ошибка индексации чанка {idx} из {filepath.name}")
-
-        logger.info(f"✅ {filepath.name}: {len(chunks)} чанков")
-        return {"success": True, "chunks": len(chunks)}
+        logger.info(f"✅ {filepath.name}: {added_chunks} чанков")
+        return {"success": True, "chunks": added_chunks}
 
     except Exception as e:
         logger.error(f"❌ Ошибка индексации {filepath.name}: {e}")
         return {"success": False, "message": str(e)}
+
 
 def index_all_files(user_id: str = "default"):
     """Массовая индексация всех файлов"""

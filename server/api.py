@@ -177,7 +177,7 @@ async def debug_search_test(query: str = "MICB", user_id: str = DEFAULT_USER_ID)
 
     return result
 
-@app.post("/debug/clear-docs")
+@app.get("/debug/clear-docs")
 async def clear_docs(user_id: str = DEFAULT_USER_ID):
     """Очищает все документы пользователя"""
     if not vector_store.is_connected():

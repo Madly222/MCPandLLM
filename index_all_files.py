@@ -69,7 +69,7 @@ def index_all_files(user_id: str = "default"):
                 content=content,
                 filename=filepath.name,
                 filetype=filepath.suffix.lstrip('.'),
-                user_id=user_id,
+                user_id="default",
                 metadata={"source_path": str(filepath)}
             )
 

@@ -123,9 +123,13 @@ class WeaviateStore:
 
         try:
             collection = self.client.collections.get("Document")
-            chunks = self._split_into_chunks(content)
-            added = 0
 
+            if metadata and metadata.get("is_table"):
+                chunks = [content]
+            else:
+                chunks = self._split_into_chunks(content)
+
+            added = 0
             for chunk in chunks:
                 props = {
                     "content": chunk,
@@ -136,39 +140,18 @@ class WeaviateStore:
                 }
                 if metadata and isinstance(metadata, dict):
                     props["source_path"] = metadata.get("source_path")
+                    if "is_table" in metadata:
+                        props["is_table"] = True
+
                 collection.data.insert(props)
                 added += 1
 
             logger.info(f"✅ Добавлено {added} чанков из '{filename}'")
             return {"success": True, "message": f"{filename} проиндексирован ({added} частей)", "chunks": added}
+
         except Exception as e:
             logger.error(f"❌ Ошибка добавления документа: {e}")
             return {"success": False, "message": str(e), "chunks": 0}
-
-    def search_documents(self, query: str, user_id: str, limit: int = 5) -> List[Dict]:
-        if not self.is_connected():
-            return []
-
-        try:
-            collection = self.client.collections.get("Document")
-
-            response = collection.query.near_text(
-                query=query,  # ← Должна быть строка, не dict!
-                limit=limit,
-                return_properties=["content", "filename", "filetype"],
-                filters=Filter.by_property("user_id").equal(user_id)
-            )
-
-            return [
-                {"content": obj.properties["content"],
-                 "filename": obj.properties["filename"],
-                 "filetype": obj.properties["filetype"],
-                 "score": 1.0}
-                for obj in response.objects
-            ]
-        except Exception as e:
-            logger.error(f"❌ Ошибка поиска документов: {e}")
-            return []
 
     # ------------------- Работа с памятью -------------------
     def add_memory(self, fact: str, category: str, user_id: str,

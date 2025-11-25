@@ -1,3 +1,4 @@
+# tools/chunking_tool.py
 import sys
 import logging
 from pathlib import Path
@@ -8,7 +9,7 @@ load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from vector_store import vector_store  # ✅ Используем глобальный
+from vector_store import vector_store
 from tools.utils import BASE_FILES_DIR
 from tools.file_tool import read_file
 from tools.excel_tool import read_excel
@@ -29,14 +30,24 @@ def chunk_text_with_overlap(text: str, max_words: int = 500, overlap_words: int 
         end = min(start + max_words, len(words))
         chunk = " ".join(words[start:end])
         chunks.append(chunk)
-        start += (max_words - overlap_words)  # Шаг с учётом overlap
+        start += (max_words - overlap_words)
 
     return chunks
 
 
+def is_error_response(content: str) -> bool:
+    """Проверяет, является ли контент сообщением об ошибке"""
+    if not content:
+        return True
+    error_prefixes = ("Ошибка", "Файл", "Error")
+    return content.strip().startswith(error_prefixes)
+
+
 def index_file(filepath: Path, user_id: str = "default") -> dict:
-    """Индексация одного файла с улучшенным chunking.
-    Таблицы всегда в 1 чанке, остальные файлы с chunking.
+    """
+    Индексация одного файла.
+    Таблицы (Excel) — всегда 1 чанк.
+    Остальные файлы — chunking с overlap.
     """
     if not filepath.exists():
         return {"success": False, "message": "Файл не найден"}
@@ -48,21 +59,15 @@ def index_file(filepath: Path, user_id: str = "default") -> dict:
         # Чтение содержимого
         # =============================
         if suffix in ['.xlsx', '.xls']:
-            content_raw = read_excel(filepath.name)
-            # Конвертируем list в строку
-            if isinstance(content_raw, list):
-                content = "\n".join(
-                    " ".join(str(cell) for cell in row) if isinstance(row, list) else str(row)
-                    for sheet in content_raw
-                    for row in (sheet["rows"] if isinstance(sheet, dict) and "rows" in sheet else [])
-                )
+            # read_excel теперь возвращает str напрямую
+            content = read_excel(filepath.name)
         else:
             content = read_file(filepath)
 
-        if not content or str(content).startswith(("Ошибка", "Файл")):
-            return {"success": False, "message": "Ошибка чтения"}
-
-        content = str(content)
+        # Проверка на ошибки чтения
+        if is_error_response(content):
+            logger.error(f"❌ Ошибка чтения {filepath.name}: {content}")
+            return {"success": False, "message": content}
 
         # =============================
         # Таблицы — всегда 1 чанк
@@ -111,7 +116,7 @@ def index_file(filepath: Path, user_id: str = "default") -> dict:
             else:
                 logger.warning(f"⚠️ Ошибка индексации чанка {idx} из {filepath.name}")
 
-        logger.info(f"✅ {filepath.name}: {added_chunks} чанков")
+        logger.info(f"✅ {filepath.name}: {added_chunks}/{len(chunks)} чанков")
         return {"success": True, "chunks": added_chunks}
 
     except Exception as e:
@@ -156,6 +161,7 @@ def index_all_files(user_id: str = "default"):
     logger.info(f"📊 Статистика: {stats_rounded}")
     logger.info(f"{'=' * 50}\n")
 
+
 def reindex_all(user_id: str = "default"):
     """Полная переиндексация с очисткой"""
     logger.info("🧹 Очистка старых данных...")
@@ -173,8 +179,5 @@ if __name__ == "__main__":
         sys.exit(1)
 
     user_id = sys.argv[1] if len(sys.argv) > 1 else "default"
-
-    # Полная переиндексация
     reindex_all(user_id)
-
     vector_store.disconnect()

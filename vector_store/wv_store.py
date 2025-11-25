@@ -83,7 +83,7 @@ class WeaviateStore:
         except Exception as e:
             logger.error(f"❌ Ошибка поиска по имени: {e}")
             return []
-        
+
     def is_connected(self) -> bool:
         try:
             return self.client is not None and self.client.is_ready()

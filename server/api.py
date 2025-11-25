@@ -120,3 +120,54 @@ async def upload_file(file: UploadFile = File(...), user_id: str = DEFAULT_USER_
             raise HTTPException(status_code=500, detail="Ошибка при сохранении или индексации файла")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при загрузке файла: {e}")
+
+
+@app.get("/debug/all-docs")
+async def debug_all_docs(user_id: str = DEFAULT_USER_ID):
+    """Показывает ВСЕ документы в Weaviate"""
+    if not vector_store.is_connected():
+        return {"error": "Weaviate не подключен"}
+
+    from weaviate.classes.query import Filter
+
+    collection = vector_store.client.collections.get("Document")
+    response = collection.query.fetch_objects(
+        limit=100,
+        return_properties=["filename", "is_table"],
+        filters=Filter.by_property("user_id").equal(user_id)
+    )
+
+    return {
+        "user_id": user_id,
+        "total": len(response.objects),
+        "files": [obj.properties.get("filename") for obj in response.objects]
+    }
+
+
+@app.get("/debug/search-test")
+async def debug_search_test(query: str = "MICB", user_id: str = DEFAULT_USER_ID):
+    """Тестирует этапы поиска"""
+    from tools.search_tool import extract_filename_pattern, smart_search
+
+    result = {"query": query, "user_id": user_id, "steps": {}}
+
+    # 1. Паттерн
+    pattern = extract_filename_pattern(query)
+    result["steps"]["1_pattern"] = pattern
+
+    # 2. По имени файла
+    if pattern and hasattr(vector_store, 'search_by_filename'):
+        filename_results = vector_store.search_by_filename(pattern, user_id, limit=20)
+        result["steps"]["2_by_filename"] = [r["filename"] for r in filename_results]
+    else:
+        result["steps"]["2_by_filename"] = "метод отсутствует или паттерн пустой"
+
+    # 3. Семантика
+    semantic_results = vector_store.search_documents(query, user_id, limit=10)
+    result["steps"]["3_semantic"] = [r["filename"] for r in semantic_results]
+
+    # 4. Итого
+    final = smart_search(query, user_id, limit=10)
+    result["steps"]["4_final"] = [{"file": r["filename"], "type": r.get("match_type")} for r in final]
+
+    return result

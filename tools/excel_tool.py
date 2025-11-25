@@ -6,21 +6,25 @@ from tools.utils import BASE_FILES_DIR
 
 def read_excel(filename: str) -> List[str]:
     """
-    Возвращает список строк из всех листов Excel файла.
+    Возвращает список всех строк Excel файла (все листы),
+    каждая строка — это текст всех ячеек через пробел.
     """
     path = BASE_FILES_DIR / filename
     if not path.exists():
         return [f"Файл '{filename}' не найден."]
+
     try:
-        wb = load_workbook(path)
+        wb = load_workbook(path, data_only=True)
         all_rows = []
-        for sheet in wb.sheetnames:
-            ws = wb[sheet]
-            sheet_rows = []
-            for row in ws.iter_rows(values_only=True):
-                sheet_rows.append([str(cell) if cell is not None else "" for cell in row])
-            all_rows.append({"sheet": sheet, "rows": sheet_rows})
+
+        for sheet in wb.worksheets:
+            for row in sheet.iter_rows(values_only=True):
+                # Преобразуем все ячейки в строку
+                row_text = " ".join(str(cell) if cell is not None else "" for cell in row)
+                all_rows.append(row_text)
+
         return all_rows
+
     except Exception as e:
         return [f"Ошибка при чтении Excel: {e}"]
 

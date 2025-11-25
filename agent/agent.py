@@ -4,20 +4,21 @@ from agent.router import route_message
 from agent.prompts import SYSTEM_PROMPT
 from agent.models import send_to_llm
 from vector_store import vector_store
+from tools.search_tool import get_rag_context  # ✅ Используем готовую функцию
 import logging
 
 logger = logging.getLogger(__name__)
 
-DOC_INDEX_USER_ID = "shared"  # Общий индекс для всех документов
 
 async def agent_process(prompt: str, user_id: str):
     history = memory.get_history(user_id) or []
 
-    rag_context = _get_rag_context(prompt)
+    # ✅ Используем тот же user_id для поиска
+    rag_context = _build_rag_context(prompt, user_id)
 
     enhanced_system_prompt = SYSTEM_PROMPT
     if rag_context:
-        enhanced_system_prompt += f"\n\n📚 **Релевантный контекст из документов:**\n{rag_context}"
+        enhanced_system_prompt += f"\n\n{rag_context}"
 
     messages = [{"role": "system", "content": enhanced_system_prompt}] + history
     messages.append({"role": "user", "content": prompt})
@@ -39,44 +40,42 @@ async def agent_process(prompt: str, user_id: str):
     return result
 
 
-def _get_rag_context(query: str, max_length: int = 2000) -> str:
-    """Получение контекста из общих документов и памяти пользователя"""
+def _build_rag_context(query: str, user_id: str, max_length: int = 3000) -> str:
+    """Собирает полный RAG контекст: документы + память + история"""
     if not vector_store.is_connected():
         return ""
 
     try:
         context_parts = []
 
-        # Поиск по общему индексу документов
-        doc_results = vector_store.search_documents(query, DOC_INDEX_USER_ID, limit=3)
-        if doc_results:
-            context_parts.append("**Из документов:**")
-            for doc in doc_results:
-                content_preview = doc["content"][:300]
-                if len(doc["content"]) > 300:
-                    content_preview += "..."
-                context_parts.append(f"• [{doc['filename']}]: {content_preview}")
+        # 1. Контекст из документов (используем функцию из search_tool)
+        doc_context = get_rag_context(query, user_id, top_n=5)
+        if doc_context:
+            context_parts.append(doc_context)
 
-        # Поиск по памяти пользователя
-        user_facts = vector_store.search_memory(query, DOC_INDEX_USER_ID, limit=2)
+        # 2. Память пользователя
+        user_facts = vector_store.search_memory(query, user_id, limit=3)
         if user_facts:
-            context_parts.append("\n**Что я знаю о вас:**")
+            context_parts.append("\n=== ЧТО Я ЗНАЮ О ПОЛЬЗОВАТЕЛЕ ===")
             for fact in user_facts:
                 context_parts.append(f"• {fact}")
 
-        # Прошлые сообщения пользователя
-        chat_history = vector_store.search_chat_history(query, DOC_INDEX_USER_ID, limit=2)
+        # 3. Релевантная история чата
+        chat_history = vector_store.search_chat_history(query, user_id, limit=3)
         if chat_history:
-            context_parts.append("\n**Из прошлых разговоров:**")
+            context_parts.append("\n=== ИЗ ПРОШЛЫХ РАЗГОВОРОВ ===")
             for chat in chat_history:
-                message_preview = chat["message"][:200]
+                role = "Пользователь" if chat["role"] == "user" else "Ассистент"
+                msg = chat["message"][:200]
                 if len(chat["message"]) > 200:
-                    message_preview += "..."
-                context_parts.append(f"• {message_preview}")
+                    msg += "..."
+                context_parts.append(f"[{role}]: {msg}")
 
         full_context = "\n".join(context_parts)
+
         if len(full_context) > max_length:
-            full_context = full_context[:max_length] + "..."
+            full_context = full_context[:max_length] + "\n...[контекст обрезан]"
+
         return full_context
 
     except Exception as e:

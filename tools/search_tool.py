@@ -64,6 +64,11 @@ def keyword_search_in_files(query: str, top_n: int = 5) -> List[Dict]:
 
 
 def semantic_search(query: str, user_id: str = "default", limit: int = 10) -> List[Dict]:
+
+    """caca"""
+    user_id = "default"
+    """caca"""
+
     """Семантический поиск через Weaviate"""
     if not vector_store.is_connected():
         return []
@@ -83,6 +88,10 @@ def semantic_search(query: str, user_id: str = "default", limit: int = 10) -> Li
 
 def hybrid_search(query: str, user_id: str = "default", top_n: int = 5) -> List[Dict]:
     """Гибридный поиск: semantic + keyword"""
+
+    """caca"""
+    user_id = "default"
+    """caca"""
 
     # 1. Семантический поиск (топ-10)
     semantic_results = semantic_search(query, user_id, limit=10)
@@ -107,6 +116,10 @@ def hybrid_search(query: str, user_id: str = "default", top_n: int = 5) -> List[
 
 def search_documents(query: str, user_id: str = "default", top_n: int = 5) -> str:
     """Главная функция поиска для router"""
+
+    """caca"""
+    user_id = "default"
+    """caca"""
 
     # Используем гибридный поиск
     results = hybrid_search(query, user_id, top_n)
@@ -136,4 +149,9 @@ def perform_search(query: str, user_id: str = "default", top_n: int = 5):
     Старый alias для совместимости с router.py.
     Использует гибридный поиск.
     """
+
+    """caca"""
+    user_id = "default"
+    """caca"""
+    
     return search_documents(query, user_id, top_n)

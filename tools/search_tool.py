@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Optional
 
-from vector_store import vector_store  # ✅ Используем глобальный
+from vector_store import vector_store
 from tools.utils import BASE_FILES_DIR
 from tools.file_tool import read_file
 from tools.excel_tool import read_excel
@@ -10,8 +10,18 @@ from tools.excel_tool import read_excel
 logger = logging.getLogger(__name__)
 
 
-def keyword_search_in_files(query: str, top_n: int = 5) -> List[Dict]:
-    """Прямой поиск подстроки в файлах (fallback)"""
+def is_error_response(content: str) -> bool:
+    """Проверяет, является ли контент сообщением об ошибке"""
+    if not content:
+        return True
+    return content.strip().startswith(("Ошибка", "Файл", "Error"))
+
+
+def keyword_search_in_files(query: str, top_n: int = 5, context_chars: int = 300) -> List[Dict]:
+    """
+    Прямой поиск подстроки в файлах (fallback).
+    Возвращает все найденные совпадения с контекстом.
+    """
     hits = []
     query_lower = query.lower()
 
@@ -20,36 +30,51 @@ def keyword_search_in_files(query: str, top_n: int = 5) -> List[Dict]:
             continue
 
         try:
+            suffix = filepath.suffix.lower()
+
             # Читаем содержимое
-            if filepath.suffix.lower() in ['.xlsx', '.xls']:
+            if suffix in ['.xlsx', '.xls']:
                 content = read_excel(filepath.name)
+                is_table = True
             else:
                 content = read_file(filepath)
+                is_table = False
 
-            if not content or str(content).startswith(("Ошибка", "Файл")):
+            if is_error_response(content):
                 continue
 
             content_lower = content.lower()
 
             # Ищем все вхождения
             start = 0
+            match_count = 0
+
             while True:
                 pos = content_lower.find(query_lower, start)
                 if pos == -1:
                     break
 
                 # Извлекаем контекст вокруг найденного
-                context_start = max(0, pos - 150)
-                context_end = min(len(content), pos + len(query) + 150)
+                context_start = max(0, pos - context_chars)
+                context_end = min(len(content), pos + len(query) + context_chars)
                 snippet = content[context_start:context_end].replace("\n", " ").strip()
+
+                # Добавляем маркеры начала/конца если обрезано
+                prefix = "..." if context_start > 0 else ""
+                suffix_text = "..." if context_end < len(content) else ""
 
                 hits.append({
                     "filename": filepath.name,
                     "filetype": filepath.suffix.lstrip('.'),
-                    "content": snippet,
+                    "content": f"{prefix}{snippet}{suffix_text}",
+                    "is_table": is_table,
+                    "chunk_index": match_count,
+                    "total_chunks": -1,  # Неизвестно для keyword поиска
                     "score": 1.0,
                     "match_type": "keyword"
                 })
+
+                match_count += 1
 
                 if len(hits) >= top_n:
                     return hits
@@ -66,6 +91,7 @@ def keyword_search_in_files(query: str, top_n: int = 5) -> List[Dict]:
 def semantic_search(query: str, user_id: str = "default", limit: int = 10) -> List[Dict]:
     """Семантический поиск через Weaviate"""
     if not vector_store.is_connected():
+        logger.warning("Weaviate не подключен, семантический поиск недоступен")
         return []
 
     try:
@@ -82,58 +108,111 @@ def semantic_search(query: str, user_id: str = "default", limit: int = 10) -> Li
 
 
 def hybrid_search(query: str, user_id: str = "default", top_n: int = 5) -> List[Dict]:
-    """Гибридный поиск: semantic + keyword"""
+    """
+    Гибридный поиск: semantic + keyword.
+    Дедупликация по контенту, а не по filename (для корректной работы с чанками).
+    """
 
-    # 1. Семантический поиск (топ-10)
-    semantic_results = semantic_search(query, user_id, limit=10)
+    # 1. Семантический поиск
+    semantic_results = semantic_search(query, user_id, limit=top_n * 2)
 
-    # 2. Если семантика дала мало результатов, добавляем keyword
+    # 2. Если семантика дала мало результатов — добавляем keyword
     if len(semantic_results) < 3:
         logger.info("Дополняем keyword поиском...")
-        keyword_results = keyword_search_in_files(query, top_n=5)
+        keyword_results = keyword_search_in_files(query, top_n=top_n)
 
-        # Объединяем, избегая дубликатов
-        seen_files = {r["filename"] for r in semantic_results}
+        # Дедупликация по контенту (первые 100 символов), не по filename
+        seen_content = {r["content"][:100] for r in semantic_results}
+
         for kr in keyword_results:
-            if kr["filename"] not in seen_files:
+            content_key = kr["content"][:100]
+            if content_key not in seen_content:
                 semantic_results.append(kr)
-                seen_files.add(kr["filename"])
+                seen_content.add(content_key)
 
-    # 3. Ранжируем: semantic результаты выше
-    semantic_results.sort(key=lambda x: 0 if x["match_type"] == "semantic" else 1)
+    # 3. Ранжируем: semantic выше, затем по score
+    semantic_results.sort(key=lambda x: (
+        0 if x["match_type"] == "semantic" else 1,
+        -x.get("score", 0)
+    ))
 
     return semantic_results[:top_n]
 
 
-def search_documents(query: str, user_id: str = "default", top_n: int = 5) -> str:
-    """Главная функция поиска для router"""
+def get_rag_context(query: str, user_id: str = "default", top_n: int = 5) -> str:
+    """
+    Формирует контекст для RAG/LLM агента.
+    Возвращает структурированный текст, понятный LLM.
+    """
+    results = hybrid_search(query, user_id, top_n)
 
-    # Используем гибридный поиск
+    if not results:
+        return ""
+
+    context_parts = []
+    context_parts.append("=== КОНТЕКСТ ИЗ ДОКУМЕНТОВ ===\n")
+
+    for i, doc in enumerate(results, 1):
+        # Метаинформация
+        doc_type = "ТАБЛИЦА" if doc.get("is_table") else "ДОКУМЕНТ"
+        chunk_info = ""
+
+        if doc.get("total_chunks", 1) > 1:
+            chunk_info = f" (чанк {doc.get('chunk_index', 0) + 1}/{doc.get('total_chunks', '?')})"
+
+        context_parts.append(
+            f"--- [{doc_type}] {doc['filename']}{chunk_info} ---\n"
+            f"{doc['content']}\n"
+        )
+
+    return "\n".join(context_parts)
+
+
+def search_documents(query: str, user_id: str = "default", top_n: int = 5) -> str:
+    """
+    Главная функция поиска — форматированный вывод для пользователя.
+    Для RAG агента используй get_rag_context().
+    """
     results = hybrid_search(query, user_id, top_n)
 
     if not results:
         return "❌ Ничего не найдено в документах."
 
-    # Форматируем результаты
     lines = ["🔍 **Результаты поиска:**\n"]
 
     for i, doc in enumerate(results, 1):
-        content_preview = doc["content"][:300]
-        if len(doc["content"]) > 300:
+        content_preview = doc["content"][:400]
+        if len(doc["content"]) > 400:
             content_preview += "..."
 
-        match_type = "🎯 семантика" if doc.get("match_type") == "semantic" else "🔍 ключевое слово"
+        # Иконки и метаданные
+        if doc.get("match_type") == "semantic":
+            match_icon = "🎯"
+        else:
+            match_icon = "🔍"
+
+        doc_icon = "📊" if doc.get("is_table") else "📄"
+
+        # Информация о чанках
+        chunk_info = ""
+        if doc.get("total_chunks", 1) > 1:
+            chunk_info = f" [часть {doc.get('chunk_index', 0) + 1}/{doc.get('total_chunks', '?')}]"
 
         lines.append(
-            f"📄 **{i}. {doc['filename']}** ({doc.get('filetype', '?')}) {match_type}\n"
+            f"{doc_icon} **{i}. {doc['filename']}**{chunk_info} {match_icon}\n"
             f"{content_preview}\n"
         )
 
     return "\n".join(lines)
 
-def perform_search(query: str, user_id: str = "default", top_n: int = 5):
-    """
-    Старый alias для совместимости с router.py.
-    Использует гибридный поиск.
-    """
+
+def perform_search(query: str, user_id: str = "default", top_n: int = 5) -> str:
+    """Alias для совместимости с router.py"""
     return search_documents(query, user_id, top_n)
+
+
+def get_raw_results(query: str, user_id: str = "default", top_n: int = 5) -> List[Dict]:
+    """
+    Возвращает сырые результаты поиска (для программного использования).
+    """
+    return hybrid_search(query, user_id, top_n)

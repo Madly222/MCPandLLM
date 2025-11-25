@@ -40,7 +40,7 @@ async def agent_process(prompt: str, user_id: str):
     return result
 
 
-def _build_rag_context(query: str, user_id: str, max_length: int = 3000) -> str:
+def _build_rag_context(query: str, user_id: str, max_length: int = 15000) -> str:
     """Собирает полный RAG контекст: документы + память + история"""
     if not vector_store.is_connected():
         return ""

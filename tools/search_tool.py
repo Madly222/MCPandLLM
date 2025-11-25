@@ -139,10 +139,12 @@ def hybrid_search(query: str, user_id: str = "default", top_n: int = 5) -> List[
     return semantic_results[:top_n]
 
 
-def get_rag_context(query: str, user_id: str = "default", top_n: int = 5) -> str:
+def get_rag_context(query: str, user_id: str = "default", top_n: int = 5,
+                    max_table_chars: int = 10000, max_doc_chars: int = 800) -> str:
     """
     Формирует контекст для RAG/LLM агента.
-    Возвращает структурированный текст, понятный LLM.
+    Таблицы передаются ЦЕЛИКОМ (до max_table_chars).
+    Обычные документы обрезаются до max_doc_chars.
     """
     results = hybrid_search(query, user_id, top_n)
 
@@ -153,16 +155,25 @@ def get_rag_context(query: str, user_id: str = "default", top_n: int = 5) -> str
     context_parts.append("=== КОНТЕКСТ ИЗ ДОКУМЕНТОВ ===\n")
 
     for i, doc in enumerate(results, 1):
-        # Метаинформация
         doc_type = "ТАБЛИЦА" if doc.get("is_table") else "ДОКУМЕНТ"
         chunk_info = ""
 
         if doc.get("total_chunks", 1) > 1:
             chunk_info = f" (чанк {doc.get('chunk_index', 0) + 1}/{doc.get('total_chunks', '?')})"
 
+        # ✅ Таблицы — полностью, документы — обрезаем
+        if doc.get("is_table"):
+            content = doc["content"][:max_table_chars]
+            if len(doc["content"]) > max_table_chars:
+                content += "\n...[таблица обрезана]"
+        else:
+            content = doc["content"][:max_doc_chars]
+            if len(doc["content"]) > max_doc_chars:
+                content += "..."
+
         context_parts.append(
             f"--- [{doc_type}] {doc['filename']}{chunk_info} ---\n"
-            f"{doc['content']}\n"
+            f"{content}\n"
         )
 
     return "\n".join(context_parts)

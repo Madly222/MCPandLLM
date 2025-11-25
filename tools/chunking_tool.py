@@ -156,10 +156,10 @@ def index_all_files():
 def rechunk_all():
     """Удаляет ВСЕ старые чанки и создаёт новые"""
     logger.info("🧹 Удаление всех старых данных пользователя...")
-    vector_store.clear_user_data(user_id)
+    vector_store.clear_user_data()
 
     logger.info("♻️ Создание новых чанков...")
-    index_all_files(user_id)
+    index_all_files()
 
     logger.info("✅ Пересоздание чанков завершено")
 

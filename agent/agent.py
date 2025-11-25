@@ -8,12 +8,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DOC_INDEX_USER_ID = "shared"  # Общий индекс для всех документов
+DOC_INDEX_USER_ID = "default"  # ✅ Общий индекс документов
 
 async def agent_process(prompt: str, user_id: str):
     history = memory.get_history(user_id) or []
 
-    rag_context = _get_rag_context(prompt)
+    rag_context = _get_rag_context(prompt, user_id)  # ✅ Передаём user_id
 
     enhanced_system_prompt = SYSTEM_PROMPT
     if rag_context:
@@ -22,6 +22,7 @@ async def agent_process(prompt: str, user_id: str):
     messages = [{"role": "system", "content": enhanced_system_prompt}] + history
     messages.append({"role": "user", "content": prompt})
 
+    # ✅ История чата - персональная для user_id
     if vector_store.is_connected():
         vector_store.add_chat_message(prompt, "user", user_id)
 
@@ -32,6 +33,7 @@ async def agent_process(prompt: str, user_id: str):
         result = await send_to_llm(updated_messages)
         updated_messages.append({"role": "assistant", "content": result})
 
+    # ✅ История чата - персональная для user_id
     if vector_store.is_connected():
         vector_store.add_chat_message(result, "assistant", user_id)
 
@@ -39,15 +41,15 @@ async def agent_process(prompt: str, user_id: str):
     return result
 
 
-def _get_rag_context(query: str, max_length: int = 2000) -> str:
-    """Получение контекста из общих документов и памяти пользователя"""
+def _get_rag_context(query: str, user_id: str, max_length: int = 2000) -> str:  # ✅ Добавлен user_id
+    """Получение контекста из общих документов и персональной памяти/истории"""
     if not vector_store.is_connected():
         return ""
 
     try:
         context_parts = []
 
-        # Поиск по общему индексу документов
+        # ✅ Документы - общие для всех (default)
         doc_results = vector_store.search_documents(query, DOC_INDEX_USER_ID, limit=3)
         if doc_results:
             context_parts.append("**Из документов:**")
@@ -57,15 +59,15 @@ def _get_rag_context(query: str, max_length: int = 2000) -> str:
                     content_preview += "..."
                 context_parts.append(f"• [{doc['filename']}]: {content_preview}")
 
-        # Поиск по памяти пользователя
-        user_facts = vector_store.search_memory(query, DOC_INDEX_USER_ID, limit=2)
+        # ✅ Память - персональная для user_id
+        user_facts = vector_store.search_memory(query, user_id, limit=2)
         if user_facts:
             context_parts.append("\n**Что я знаю о вас:**")
             for fact in user_facts:
                 context_parts.append(f"• {fact}")
 
-        # Прошлые сообщения пользователя
-        chat_history = vector_store.search_chat_history(query, DOC_INDEX_USER_ID, limit=2)
+        # ✅ История чата - персональная для user_id
+        chat_history = vector_store.search_chat_history(query, user_id, limit=2)
         if chat_history:
             context_parts.append("\n**Из прошлых разговоров:**")
             for chat in chat_history:

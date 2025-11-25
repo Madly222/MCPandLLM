@@ -251,7 +251,7 @@ class WeaviateStore:
             "chat_messages": stats.get("chathistory", 0)
         }
 
-    def clear_user_data(self):
+    def clear_user_data(self, user_id: str = "default"):
         if not self.is_connected():
             return
 
@@ -259,9 +259,9 @@ class WeaviateStore:
             for name in ["Document", "UserMemory", "ChatHistory"]:
                 collection = self.client.collections.get(name)
                 collection.data.delete_many(
-                    where=Filter.by_property("user_id").equal()
+                    where=Filter.by_property("user_id").equal(user_id)
                 )
-            logger.info(f"✅ Данные удалены")
+            logger.info(f"✅ Данные пользователя {user_id} удалены")
         except Exception as e:
             logger.error(f"❌ Ошибка очистки данных: {e}")
 

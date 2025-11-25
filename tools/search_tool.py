@@ -153,5 +153,5 @@ def perform_search(query: str, user_id: str = "default", top_n: int = 5):
     """caca"""
     user_id = "default"
     """caca"""
-    
+
     return search_documents(query, user_id, top_n)

@@ -9,6 +9,7 @@ from vector_store import vector_store
 from pathlib import Path
 import re
 import logging
+from tools.multi_file_tool import process_multiple_files, compare_files
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,19 @@ async def route_message(messages: list, user_id: str):
             result = _add_to_memory(fact, user_id)
             messages.append({"role": "assistant", "content": result})
             return messages[-1]["content"], messages
+
+    # --- Сводка по нескольким файлам ---
+    if re.search(r"(сводка|сводку|обзор|summary).*(файл|документ|всех)", last_user_msg, re.I):
+        result = await process_multiple_files(last_user_msg, user_id, top_n=20)
+        messages.append({"role": "assistant", "content": result})
+        return messages[-1]["content"], messages
+
+    # --- Сравнение файлов ---
+    if re.search(r"(сравни|сравнение|compare)", last_user_msg, re.I):
+        # Извлекаем имена файлов из сообщения (упрощённо)
+        result = await process_multiple_files(last_user_msg, user_id, top_n=10)
+        messages.append({"role": "assistant", "content": result})
+        return messages[-1]["content"], messages
 
     # --- открытие Excel файлов ---
     if any(ext in last_user_msg.lower() for ext in ["excel", ".xlsx", ".xls"]):

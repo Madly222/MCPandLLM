@@ -171,3 +171,12 @@ async def debug_search_test(query: str = "MICB", user_id: str = DEFAULT_USER_ID)
     result["steps"]["4_final"] = [{"file": r["filename"], "type": r.get("match_type")} for r in final]
 
     return result
+
+@app.post("/debug/clear-docs")
+async def clear_docs(user_id: str = DEFAULT_USER_ID):
+    """Очищает все документы пользователя"""
+    if not vector_store.is_connected():
+        return {"error": "Weaviate не подключен"}
+
+    vector_store.clear_user_data(user_id)
+    return {"message": f"Документы пользователя {user_id} удалены"}

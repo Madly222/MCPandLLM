@@ -48,10 +48,14 @@ def index_file(filepath: Path, user_id: str = "default") -> dict:
         # Чтение содержимого
         # =============================
         if suffix in ['.xlsx', '.xls']:
-            content = read_excel(filepath.name)
+            content_raw = read_excel(filepath.name)
             # Конвертируем list в строку
-            if isinstance(content, list):
-                content = "\n".join(" ".join(map(str, row)) for row in content)
+            if isinstance(content_raw, list):
+                content = "\n".join(
+                    " ".join(str(cell) for cell in row) if isinstance(row, list) else str(row)
+                    for sheet in content_raw
+                    for row in (sheet["rows"] if isinstance(sheet, dict) and "rows" in sheet else [])
+                )
         else:
             content = read_file(filepath)
 
@@ -64,9 +68,6 @@ def index_file(filepath: Path, user_id: str = "default") -> dict:
         # Таблицы — всегда 1 чанк
         # =============================
         if suffix in ['.xlsx', '.xls']:
-            content_list = read_excel(filepath.name)
-            content = "\n".join(content_list)
-
             result = vector_store.add_document(
                 content=content,
                 filename=filepath.name,
@@ -147,11 +148,13 @@ def index_all_files(user_id: str = "default"):
         else:
             errors += 1
 
+    stats = vector_store.get_stats()
+    stats_rounded = {k: round(v, 2) if isinstance(v, float) else v for k, v in stats.items()}
+
     logger.info(f"\n{'=' * 50}")
     logger.info(f"✅ Успешно: {success} | ❌ Ошибки: {errors}")
-    logger.info(f"📊 Статистика: {vector_store.get_stats()}")
+    logger.info(f"📊 Статистика: {stats_rounded}")
     logger.info(f"{'=' * 50}\n")
-
 
 def reindex_all(user_id: str = "default"):
     """Полная переиндексация с очисткой"""

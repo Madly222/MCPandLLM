@@ -49,6 +49,41 @@ class WeaviateStore:
             self.client = None
             return False
 
+    def search_by_filename(self, filename_pattern: str, user_id: str, limit: int = 20) -> List[Dict]:
+        """Поиск по паттерну в имени файла"""
+        if not self.is_connected():
+            return []
+
+        try:
+            collection = self.client.collections.get("Document")
+
+            response = collection.query.fetch_objects(
+                limit=100,
+                return_properties=["content", "filename", "filetype", "is_table", "chunk_index", "total_chunks"],
+                filters=Filter.by_property("user_id").equal(user_id)
+            )
+
+            pattern_lower = filename_pattern.lower()
+            results = []
+
+            for obj in response.objects:
+                filename = obj.properties.get("filename", "").lower()
+                if pattern_lower in filename:
+                    results.append({
+                        "content": obj.properties.get("content", ""),
+                        "filename": obj.properties.get("filename", ""),
+                        "filetype": obj.properties.get("filetype", ""),
+                        "is_table": obj.properties.get("is_table", False),
+                        "chunk_index": obj.properties.get("chunk_index", 0),
+                        "total_chunks": obj.properties.get("total_chunks", 1),
+                        "score": 1.0
+                    })
+
+            return results[:limit]
+        except Exception as e:
+            logger.error(f"❌ Ошибка поиска по имени: {e}")
+            return []
+        
     def is_connected(self) -> bool:
         try:
             return self.client is not None and self.client.is_ready()

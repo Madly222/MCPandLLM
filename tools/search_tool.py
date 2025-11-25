@@ -1,4 +1,6 @@
+# tools/search_tool.py
 import logging
+import re
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -10,6 +12,8 @@ from tools.excel_tool import read_excel
 logger = logging.getLogger(__name__)
 
 
+# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
 def is_error_response(content: str) -> bool:
     """Проверяет, является ли контент сообщением об ошибке"""
     if not content:
@@ -17,10 +21,34 @@ def is_error_response(content: str) -> bool:
     return content.strip().startswith(("Ошибка", "Файл", "Error"))
 
 
+def extract_filename_pattern(query: str) -> str:
+    """
+    Извлекает возможный паттерн имени файла из запроса.
+    Возвращает самое длинное слово (минимум 3 символа).
+    """
+    # Ищем слова длиной 3+ символов
+    patterns = re.findall(r'\b[A-Za-zА-Яа-я0-9_-]{3,}\b', query)
+
+    # Исключаем стоп-слова
+    stop_words = {
+        'найди', 'поиск', 'покажи', 'открой', 'файл', 'файлы', 'документ',
+        'таблица', 'таблицы', 'все', 'всех', 'данные', 'информация',
+        'search', 'find', 'show', 'file', 'files', 'document', 'table'
+    }
+
+    patterns = [p for p in patterns if p.lower() not in stop_words]
+
+    if patterns:
+        return max(patterns, key=len)
+    return ""
+
+
+# ==================== МЕТОДЫ ПОИСКА ====================
+
 def keyword_search_in_files(query: str, top_n: int = 5, context_chars: int = 300) -> List[Dict]:
     """
-    Прямой поиск подстроки в файлах (fallback).
-    Возвращает все найденные совпадения с контекстом.
+    Прямой поиск подстроки в файлах.
+    Полезен для точного поиска: номера, коды, ИНН и т.д.
     """
     hits = []
     query_lower = query.lower()
@@ -59,7 +87,7 @@ def keyword_search_in_files(query: str, top_n: int = 5, context_chars: int = 300
                 context_end = min(len(content), pos + len(query) + context_chars)
                 snippet = content[context_start:context_end].replace("\n", " ").strip()
 
-                # Добавляем маркеры начала/конца если обрезано
+                # Маркеры обрезки
                 prefix = "..." if context_start > 0 else ""
                 suffix_text = "..." if context_end < len(content) else ""
 
@@ -69,7 +97,7 @@ def keyword_search_in_files(query: str, top_n: int = 5, context_chars: int = 300
                     "content": f"{prefix}{snippet}{suffix_text}",
                     "is_table": is_table,
                     "chunk_index": match_count,
-                    "total_chunks": -1,  # Неизвестно для keyword поиска
+                    "total_chunks": -1,
                     "score": 1.0,
                     "match_type": "keyword"
                 })
@@ -82,71 +110,127 @@ def keyword_search_in_files(query: str, top_n: int = 5, context_chars: int = 300
                 start = pos + 1
 
         except Exception as e:
-            logger.error(f"Ошибка поиска в {filepath.name}: {e}")
+            logger.error(f"Ошибка keyword поиска в {filepath.name}: {e}")
             continue
 
     return hits
 
 
+def filename_search(query: str, user_id: str = "default", limit: int = 20) -> List[Dict]:
+    """
+    Поиск по паттерну в имени файла.
+    """
+    pattern = extract_filename_pattern(query)
+    if not pattern:
+        return []
+
+    if not vector_store.is_connected():
+        return []
+
+    try:
+        results = vector_store.search_by_filename(pattern, user_id, limit=limit)
+        for r in results:
+            r["match_type"] = "filename"
+        return results
+    except Exception as e:
+        logger.error(f"Ошибка поиска по имени: {e}")
+        return []
+
+
 def semantic_search(query: str, user_id: str = "default", limit: int = 10) -> List[Dict]:
-    """Семантический поиск через Weaviate"""
+    """
+    Семантический поиск через Weaviate (по контенту).
+    """
     if not vector_store.is_connected():
         logger.warning("Weaviate не подключен, семантический поиск недоступен")
         return []
 
     try:
         results = vector_store.search_documents(query, user_id, limit=limit)
-
-        # Добавляем тип поиска
         for r in results:
             r["match_type"] = "semantic"
-
         return results
     except Exception as e:
         logger.error(f"Ошибка семантического поиска: {e}")
         return []
 
 
-def hybrid_search(query: str, user_id: str = "default", top_n: int = 5) -> List[Dict]:
+# ==================== ОСНОВНАЯ ФУНКЦИЯ ПОИСКА ====================
+
+def smart_search(query: str, user_id: str = "default", limit: int = 10) -> List[Dict]:
     """
-    Гибридный поиск: semantic + keyword.
-    Дедупликация по контенту, а не по filename (для корректной работы с чанками).
+    Умный комбинированный поиск:
+    1. По имени файла (быстро, точно)
+    2. Семантический поиск (по смыслу контента)
+    3. Keyword fallback (точный поиск подстроки, если мало результатов)
+
+    Дедупликация по имени файла.
     """
+    results = []
+    seen = set()
 
-    # 1. Семантический поиск
-    semantic_results = semantic_search(query, user_id, limit=top_n * 2)
+    # Если Weaviate недоступен — только keyword
+    if not vector_store.is_connected():
+        logger.warning("Weaviate недоступен, используем только keyword поиск")
+        return keyword_search_in_files(query, top_n=limit)
 
-    # 2. Если семантика дала мало результатов — добавляем keyword
-    if len(semantic_results) < 3:
-        logger.info("Дополняем keyword поиском...")
-        keyword_results = keyword_search_in_files(query, top_n=top_n)
+    # ШАГ 1: Поиск по имени файла
+    pattern = extract_filename_pattern(query)
+    if pattern:
+        logger.info(f"📁 Поиск по имени: '{pattern}'")
+        for doc in filename_search(query, user_id, limit=20):
+            key = doc["filename"]
+            if key not in seen:
+                results.append(doc)
+                seen.add(key)
+        logger.info(f"   → Найдено по имени: {len(results)}")
 
-        # Дедупликация по контенту (первые 100 символов), не по filename
-        seen_content = {r["content"][:100] for r in semantic_results}
+    # ШАГ 2: Семантический поиск
+    logger.info(f"🎯 Семантический поиск: '{query}'")
+    semantic_results = semantic_search(query, user_id, limit=limit)
+    added_semantic = 0
+    for doc in semantic_results:
+        key = doc["filename"]
+        if key not in seen:
+            results.append(doc)
+            seen.add(key)
+            added_semantic += 1
+    logger.info(f"   → Добавлено семантикой: {added_semantic}")
 
-        for kr in keyword_results:
-            content_key = kr["content"][:100]
-            if content_key not in seen_content:
-                semantic_results.append(kr)
-                seen_content.add(content_key)
+    # ШАГ 3: Keyword fallback (если мало результатов)
+    if len(results) < 3:
+        logger.info(f"🔎 Keyword fallback: '{query}'")
+        keyword_results = keyword_search_in_files(query, top_n=limit)
+        added_keyword = 0
+        for doc in keyword_results:
+            key = doc["filename"]
+            if key not in seen:
+                results.append(doc)
+                seen.add(key)
+                added_keyword += 1
+        logger.info(f"   → Добавлено keyword: {added_keyword}")
 
-    # 3. Ранжируем: semantic выше, затем по score
-    semantic_results.sort(key=lambda x: (
-        0 if x["match_type"] == "semantic" else 1,
+    # Ранжирование: filename > semantic > keyword
+    priority = {"filename": 0, "semantic": 1, "keyword": 2}
+    results.sort(key=lambda x: (
+        priority.get(x.get("match_type", "keyword"), 3),
         -x.get("score", 0)
     ))
 
-    return semantic_results[:top_n]
+    logger.info(f"📊 Итого найдено: {len(results)} документов")
+    return results[:limit]
 
 
-def get_rag_context(query: str, user_id: str = "default", top_n: int = 5,
-                    max_table_chars: int = 10000, max_doc_chars: int = 800) -> str:
+# ==================== ФУНКЦИИ ДЛЯ RAG И ВЫВОДА ====================
+
+def get_rag_context(query: str, user_id: str = "default", top_n: int = 10,
+                    max_table_chars: int = 8000, max_doc_chars: int = 800) -> str:
     """
     Формирует контекст для RAG/LLM агента.
-    Таблицы передаются ЦЕЛИКОМ (до max_table_chars).
-    Обычные документы обрезаются до max_doc_chars.
+    Таблицы — целиком (до max_table_chars).
+    Документы — обрезаются (до max_doc_chars).
     """
-    results = hybrid_search(query, user_id, top_n)
+    results = smart_search(query, user_id, limit=top_n)
 
     if not results:
         return ""
@@ -156,12 +240,17 @@ def get_rag_context(query: str, user_id: str = "default", top_n: int = 5,
 
     for i, doc in enumerate(results, 1):
         doc_type = "ТАБЛИЦА" if doc.get("is_table") else "ДОКУМЕНТ"
-        chunk_info = ""
 
+        # Иконка типа поиска
+        match_icons = {"filename": "📁", "semantic": "🎯", "keyword": "🔍"}
+        match_icon = match_icons.get(doc.get("match_type", ""), "")
+
+        # Информация о чанках
+        chunk_info = ""
         if doc.get("total_chunks", 1) > 1:
             chunk_info = f" (чанк {doc.get('chunk_index', 0) + 1}/{doc.get('total_chunks', '?')})"
 
-        # ✅ Таблицы — полностью, документы — обрезаем
+        # Контент: таблицы целиком, документы обрезаем
         if doc.get("is_table"):
             content = doc["content"][:max_table_chars]
             if len(doc["content"]) > max_table_chars:
@@ -172,7 +261,7 @@ def get_rag_context(query: str, user_id: str = "default", top_n: int = 5,
                 content += "..."
 
         context_parts.append(
-            f"--- [{doc_type}] {doc['filename']}{chunk_info} ---\n"
+            f"--- [{doc_type}] {doc['filename']}{chunk_info} {match_icon} ---\n"
             f"{content}\n"
         )
 
@@ -181,10 +270,9 @@ def get_rag_context(query: str, user_id: str = "default", top_n: int = 5,
 
 def search_documents(query: str, user_id: str = "default", top_n: int = 5) -> str:
     """
-    Главная функция поиска — форматированный вывод для пользователя.
-    Для RAG агента используй get_rag_context().
+    Форматированный вывод для пользователя.
     """
-    results = hybrid_search(query, user_id, top_n)
+    results = smart_search(query, user_id, limit=top_n)
 
     if not results:
         return "❌ Ничего не найдено в документах."
@@ -196,12 +284,9 @@ def search_documents(query: str, user_id: str = "default", top_n: int = 5) -> st
         if len(doc["content"]) > 400:
             content_preview += "..."
 
-        # Иконки и метаданные
-        if doc.get("match_type") == "semantic":
-            match_icon = "🎯"
-        else:
-            match_icon = "🔍"
-
+        # Иконки
+        match_icons = {"filename": "📁", "semantic": "🎯", "keyword": "🔍"}
+        match_icon = match_icons.get(doc.get("match_type", ""), "🔍")
         doc_icon = "📊" if doc.get("is_table") else "📄"
 
         # Информация о чанках
@@ -217,13 +302,18 @@ def search_documents(query: str, user_id: str = "default", top_n: int = 5) -> st
     return "\n".join(lines)
 
 
+# ==================== АЛИАСЫ ДЛЯ СОВМЕСТИМОСТИ ====================
+
 def perform_search(query: str, user_id: str = "default", top_n: int = 5) -> str:
-    """Alias для совместимости с router.py"""
+    """Alias для router.py"""
     return search_documents(query, user_id, top_n)
 
 
 def get_raw_results(query: str, user_id: str = "default", top_n: int = 5) -> List[Dict]:
-    """
-    Возвращает сырые результаты поиска (для программного использования).
-    """
-    return hybrid_search(query, user_id, top_n)
+    """Возвращает сырые результаты (для программного использования)"""
+    return smart_search(query, user_id, limit=top_n)
+
+
+def hybrid_search(query: str, user_id: str = "default", top_n: int = 5) -> List[Dict]:
+    """Alias для обратной совместимости"""
+    return smart_search(query, user_id, limit=top_n)

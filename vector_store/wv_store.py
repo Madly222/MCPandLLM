@@ -316,6 +316,26 @@ class WeaviateStore:
             "chat_messages": stats.get("chathistory", 0)
         }
 
+    def get_all_user_documents(self, user_id: str, limit: int = 100) -> List[Dict]:
+        """Получить все документы пользователя"""
+        if not self.is_connected():
+            return []
+
+        try:
+            collection = self.client.collections.get("Document")
+            response = collection.query.fetch_objects(
+                limit=limit,
+                return_properties=["filename", "is_table"],
+                filters=Filter.by_property("user_id").equal(user_id)
+            )
+            return [
+                {"filename": obj.properties.get("filename", "")}
+                for obj in response.objects
+            ]
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения документов: {e}")
+            return []
+        
     def clear_user_data(self, user_id: str):
         if not self.is_connected():
             return

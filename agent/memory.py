@@ -1,3 +1,4 @@
+# agent/memory.py (тот файл, который ты прислал)
 from typing import Dict, List
 from pathlib import Path
 
@@ -12,7 +13,12 @@ class Memory:
         return self.history.get(user_id, [])
 
     def set_history(self, user_id: str, messages: list):
-        self.history[user_id] = messages
+        # Защита: сохраняем только dict'ы с ролями user/assistant и полем content
+        safe = []
+        for m in messages or []:
+            if isinstance(m, dict) and m.get("role") in ("user", "assistant") and "content" in m:
+                safe.append({"role": m["role"], "content": str(m["content"])})
+        self.history[user_id] = safe
 
     # --- пользовательские файлы ---
     def set_user_files(self, user_id: str, files: List[Path]):

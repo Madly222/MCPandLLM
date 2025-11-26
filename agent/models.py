@@ -14,7 +14,7 @@ client = OpenAI(
 )
 
 # === НАСТРОЙКИ ===
-DEFAULT_MODEL = "qwen/qwen3-4b:free"
+DEFAULT_MODEL = "google/gemini-2.0-flash-exp:free"
 DEFAULT_MAX_TOKENS = 2048  # Лимит на ответ
 DEFAULT_TEMPERATURE = 0.7
 

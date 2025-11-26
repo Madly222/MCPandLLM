@@ -91,6 +91,17 @@ async def agent_process(prompt: str, user_id: str):
 
     # Если роутер не обработал — LLM
     if result is None:
+        if result is None:
+            import json
+            try:
+                pretty = json.dumps(messages, ensure_ascii=False, indent=2)
+                logger.info(
+                    "\n========== FULL PROMPT BEGIN ==========\n" + pretty + "\n========== FULL PROMPT END ==========\n")
+                print("\n========== FULL PROMPT BEGIN ==========")
+                print(pretty)
+                print("========== FULL PROMPT END ==========\n")
+            except Exception as e:
+                logger.error(f"❌ Failed to dump full prompt: {e}")
         result = await send_to_llm(messages)
 
     # Сохраняем ответ

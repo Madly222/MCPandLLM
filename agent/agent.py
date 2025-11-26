@@ -23,6 +23,8 @@ def _filter_user_assistant(messages: list) -> list:
 
 async def agent_process(prompt: str, user_id: str):
     # История — только последние сообщения (user/assistant)
+    memory.clear_all_history()
+
     history = (memory.get_history(user_id) or [])[-MAX_HISTORY_MESSAGES:]
 
     # RAG контекст

@@ -14,7 +14,7 @@ client = OpenAI(
 )
 
 # === НАСТРОЙКИ ===
-DEFAULT_MODEL = "deepseek/deepseek-r1-distill-llama-70b:free"
+DEFAULT_MODEL = "nousresearch/hermes-3-llama-3.1-405b:free"
 DEFAULT_MAX_TOKENS = 2048  # Лимит на ответ
 DEFAULT_TEMPERATURE = 0.7
 

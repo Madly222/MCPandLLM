@@ -3,6 +3,7 @@ from pathlib import Path
 
 class Memory:
     def __init__(self):
+        memory.clear_all_history()
         self.history: Dict[str, list] = {}
         self.user_files: Dict[str, List[Path]] = {}
         self.state: Dict[str, dict] = {}  # для get_state/set_state

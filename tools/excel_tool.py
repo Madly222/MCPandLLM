@@ -6,26 +6,20 @@ from tools.utils import BASE_FILES_DIR
 
 
 def format_cell_value(value) -> str:
-    """
-    Форматирует значение ячейки:
-    - числа округляет до 2 знаков после запятой
-    - None превращает в пустую строку
-    - остальное в строку
-    """
+    """Форматирует значение ячейки"""
     if value is None:
         return ""
     if isinstance(value, float):
         return f"{value:.2f}"
     if isinstance(value, int):
         return str(value)
-    return str(value)
+    return str(value).strip()
 
 
 def read_excel(filename: str) -> str:
     """
-    Читает Excel файл и возвращает его содержимое как один большой текст.
-    Формат удобен для понимания LLM и создания одного чанка.
-    Числа округляются до 2 знаков после запятой.
+    Универсальное чтение Excel для любых таблиц.
+    Автоматически определяет заголовки и форматирует данные.
     """
     path = BASE_FILES_DIR / filename
     if not path.exists():
@@ -34,22 +28,80 @@ def read_excel(filename: str) -> str:
     try:
         wb = load_workbook(path, data_only=True)
         text_parts = []
-        text_parts.append(f"=== EXCEL ФАЙЛ: {filename} ===\n")
+        text_parts.append(f"=== ФАЙЛ: {filename} ===\n")
 
         for sheet in wb.worksheets:
             text_parts.append(f"\n--- Лист: {sheet.title} ---\n")
 
-            for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            all_rows = []
+            for row in sheet.iter_rows(values_only=True):
                 cells = [format_cell_value(cell) for cell in row]
                 # Пропускаем полностью пустые строки
-                if any(cell.strip() for cell in cells):
-                    row_text = " | ".join(cells)
-                    text_parts.append(f"Строка {row_idx}: {row_text}")
+                if any(cell for cell in cells):
+                    all_rows.append(cells)
 
-        return "\n".join(text_parts)
+            if not all_rows:
+                text_parts.append("(пустой лист)\n")
+                continue
+
+            # Находим строку заголовков (первая строка с 3+ непустых ячеек)
+            headers = None
+            header_idx = 0
+            for idx, row in enumerate(all_rows):
+                non_empty = [c for c in row if c]
+                if len(non_empty) >= 3:
+                    headers = row
+                    header_idx = idx
+                    break
+
+            # Если заголовки найдены — форматируем как таблицу
+            if headers:
+                # Строки до заголовков — информация
+                for row in all_rows[:header_idx]:
+                    info = " | ".join(c for c in row if c)
+                    if info:
+                        text_parts.append(f"{info}\n")
+
+                # Заголовки
+                header_text = " | ".join(h for h in headers if h)
+                text_parts.append(f"\n[Заголовки]: {header_text}\n\n")
+
+                # Данные
+                for row in all_rows[header_idx + 1:]:
+                    row_text = _format_row_smart(row, headers)
+                    if row_text:
+                        text_parts.append(f"{row_text}\n")
+            else:
+                # Нет явных заголовков — выводим как есть
+                for row in all_rows:
+                    row_text = " | ".join(c for c in row if c)
+                    if row_text:
+                        text_parts.append(f"{row_text}\n")
+
+        return "".join(text_parts)
 
     except Exception as e:
         return f"Ошибка при чтении Excel: {e}"
+
+
+def _format_row_smart(row: list, headers: list) -> str:
+    """
+    Форматирует строку данных с заголовками.
+    Пропускает пустые значения.
+    """
+    parts = []
+
+    for i, cell in enumerate(row):
+        if not cell:
+            continue
+
+        # Если есть заголовок — добавляем его
+        if i < len(headers) and headers[i]:
+            parts.append(f"{headers[i]}={cell}")
+        else:
+            parts.append(str(cell))
+
+    return " | ".join(parts) if parts else ""
 
 
 def write_excel(filename: str, sheet_name: str, data: list) -> str:

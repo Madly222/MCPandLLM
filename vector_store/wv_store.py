@@ -188,7 +188,8 @@ class WeaviateStore:
             logger.error(f"❌ Ошибка добавления документа: {e}")
             return {"success": False, "message": str(e)}
 
-    def search_documents(self, query: str, user_id: str, limit: int = 5) -> List[Dict]:
+    def search_documents(self, query: str, user_id: str, limit: int = 5, min_score: float = 0.5) -> List[Dict]:
+        """Семантический поиск с минимальным порогом релевантности"""
         if not self.is_connected():
             return []
 
@@ -198,22 +199,32 @@ class WeaviateStore:
             response = collection.query.near_text(
                 query=query,
                 limit=limit,
+                return_metadata=["distance"],  # ← Получаем distance
                 return_properties=["content", "filename", "filetype", "is_table", "chunk_index", "total_chunks"],
                 filters=Filter.by_property("user_id").equal(user_id)
             )
 
-            return [
-                {
+            results = []
+            for obj in response.objects:
+                # distance → score (чем меньше distance, тем лучше)
+                distance = obj.metadata.distance if obj.metadata else 1.0
+                score = 1 - distance  # Конвертируем в score 0-1
+
+                # Фильтруем нерелевантные
+                if score < min_score:
+                    continue
+
+                results.append({
                     "content": obj.properties.get("content", ""),
                     "filename": obj.properties.get("filename", ""),
                     "filetype": obj.properties.get("filetype", ""),
                     "is_table": obj.properties.get("is_table", False),
                     "chunk_index": obj.properties.get("chunk_index", 0),
                     "total_chunks": obj.properties.get("total_chunks", 1),
-                    "score": 1.0
-                }
-                for obj in response.objects
-            ]
+                    "score": score
+                })
+
+            return results
         except Exception as e:
             logger.error(f"❌ Ошибка поиска документов: {e}")
             return []

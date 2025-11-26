@@ -14,7 +14,7 @@ client = OpenAI(
 )
 
 # === НАСТРОЙКИ ===
-DEFAULT_MODEL = "x-ai/grok-4.1-fast:free"
+DEFAULT_MODEL = "openai/gpt-4o-mini:free"
 DEFAULT_MAX_TOKENS = 2048  # Лимит на ответ
 DEFAULT_TEMPERATURE = 0.7
 

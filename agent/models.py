@@ -1,46 +1,52 @@
 import os
 import asyncio
 import logging
-import httpx
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# === НАСТРОЙКИ ===
-DEFAULT_MODEL = "gpt-4o-mini"  # или доступная модель DeepSeek
-DEFAULT_MAX_TOKENS = 4096
+# === Настройки ===
+DEFAULT_MODEL = "mistralai/mistral-7b-instruct:free"
+DEFAULT_MAX_TOKENS = 2048
 DEFAULT_TEMPERATURE = 0.7
-DEEPSEEK_API_KEY = os.getenv("sk-f3d90f3a29924efb9953077b4578be45")
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"  # пример, уточни актуальный URL
+
+# Создаём клиент OpenRouter
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("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")
+)
 
 async def send_to_llm(messages: list, max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
-    """Отправка запроса к LLM через DeepSeek HTTP API"""
+    """Отправка запроса к Mistral-7B через OpenRouter"""
 
-    async with httpx.AsyncClient() as client:
-        payload = {
-            "model": DEFAULT_MODEL,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": DEFAULT_TEMPERATURE
-        }
-        headers = {
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        try:
-            response = await client.post(f"{DEEPSEEK_BASE_URL}/chat/completions", json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            # В DeepSeek ответ может быть в data["choices"][0]["message"]["content"]
-            return data["choices"][0]["message"]["content"]
-        except Exception as e:
-            logger.error(f"❌ Ошибка LLM: {e}")
-            raise
+    loop = asyncio.get_event_loop()
+
+    def blocking_call():
+        return client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=DEFAULT_TEMPERATURE,
+            extra_headers={
+                # Опционально: для рейтинга на openrouter.ai
+                "HTTP-Referer": os.getenv("YOUR_SITE_URL", ""),
+                "X-Title": os.getenv("YOUR_SITE_NAME", "")
+            },
+            extra_body={}
+        )
+
+    try:
+        res = await loop.run_in_executor(None, blocking_call)
+        return res.choices[0].message.content
+    except Exception as e:
+        logger.error(f"❌ Ошибка LLM: {e}")
+        raise
 
 # === Пример использования ===
 async def main():
-    messages = [{"role": "user", "content": "Привет, DeepSeek!"}]
+    messages = [{"role": "user", "content": "What is the meaning of life?"}]
     response = await send_to_llm(messages)
     print(response)
 

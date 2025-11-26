@@ -12,7 +12,7 @@ DEFAULT_MODEL = "gpt-4o-mini"  # или доступная модель DeepSeek
 DEFAULT_MAX_TOKENS = 4096
 DEFAULT_TEMPERATURE = 0.7
 DEEPSEEK_API_KEY = os.getenv("sk-f3d90f3a29924efb9953077b4578be45")
-DEEPSEEK_BASE_URL = "https://api.deepsik.com/v1"  # пример, уточни актуальный URL
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"  # пример, уточни актуальный URL
 
 async def send_to_llm(messages: list, max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
     """Отправка запроса к LLM через DeepSeek HTTP API"""

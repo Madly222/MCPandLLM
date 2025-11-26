@@ -1,8 +1,7 @@
 import os
 from pathlib import Path
-from PyPDF2 import PdfReader
-import requests
 from dotenv import load_dotenv
+from PyPDF2 import PdfReader
 
 load_dotenv()
 BASE_FILES_DIR = Path(os.getenv("FILES_DIR", Path.cwd()))
@@ -25,39 +24,3 @@ def read_file(filepath: Path) -> str:
             return f"Тип файла {filepath.suffix} не поддерживается."
     except Exception as e:
         return f"Ошибка при чтении файла {filepath}: {e}"
-
-
-def check_openrouter_balance():
-    api_key = os.getenv("OPENAI_API_KEY")
-
-    if not api_key:
-        print("❌ OPENAI_API_KEY не найден в .env")
-        return
-
-    try:
-        response = requests.get(
-            "https://openrouter.ai/api/v1/auth/key",
-            headers={"Authorization": f"Bearer {api_key}"}
-        )
-
-        if response.status_code == 200:
-            data = response.json().get("data", {})
-            print("💰 OpenRouter Balance:")
-            print(f"   • Usage: ${data.get('usage', 0):.2f}")
-            print(f"   • Limit: ${data.get('limit', 0):.2f}")
-            print(f"   • Remaining: ${data.get('limit', 0) - data.get('usage', 0):.2f}")
-            print(f"   • Free tier: {data.get('is_free_tier', False)}")
-
-            rate_limit = data.get('rate_limit', {})
-            if rate_limit:
-                print(f"   • Rate limit: {rate_limit.get('requests')} req / {rate_limit.get('interval')}")
-        else:
-            print(f"❌ Ошибка: {response.status_code}")
-            print(response.text)
-
-    except Exception as e:
-        print(f"❌ Ошибка проверки баланса: {e}")
-
-
-if __name__ == "__main__":
-    check_openrouter_balance()

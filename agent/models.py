@@ -14,7 +14,7 @@ client = OpenAI(
 )
 
 # === НАСТРОЙКИ ===
-DEFAULT_MODEL = "deepseek/deepseek-r1:free"
+DEFAULT_MODEL = "tngtech/deepseek-r1t-chimera:free"
 DEFAULT_MAX_TOKENS = 2048  # Лимит на ответ
 DEFAULT_TEMPERATURE = 0.7
 

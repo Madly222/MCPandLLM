@@ -23,7 +23,7 @@ def _filter_user_assistant(messages: list) -> list:
 def _needs_rag_context(query: str) -> bool:
     """
     Определяет, нужен ли RAG контекст для запроса.
-    Возвращает False для простых сообщений (приветствия, благодарности и т.д.)
+    RAG нужен ТОЛЬКО если есть явные триггеры.
     """
     query_lower = query.lower().strip()
 
@@ -33,21 +33,13 @@ def _needs_rag_context(query: str) -> bool:
         r'^(пока|до свидания|bye|goodbye)[\s!.?]*$',
         r'^(спасибо|благодарю|thanks|thank you)[\s!.?]*$',
         r'^(да|нет|ок|okay|ok|хорошо|понял|ясно)[\s!.?]*$',
-        r'^(как дела|как ты|что нового)[\s?]*$',
+        r'^(как дела|как ты|что нового|что делаешь)[\s?]*$',
         r'^(кто ты|что ты умеешь|помощь|help)[\s?]*$',
     ]
 
     for pattern in simple_patterns:
         if re.match(pattern, query_lower):
-            logger.info(f"⏭️ RAG пропущен: простое сообщение")
-            return False
-
-    # Короткие сообщения без ключевых слов — НЕ нужен RAG
-    if len(query_lower) < 10:
-        # Но если есть ключевые слова — нужен
-        rag_keywords = ['файл', 'таблиц', 'документ', 'данные', 'excel', 'найди', 'поиск', 'покажи', 'micb']
-        if not any(kw in query_lower for kw in rag_keywords):
-            logger.info(f"⏭️ RAG пропущен: короткое сообщение без ключевых слов")
+            logger.info("⏭️ RAG пропущен: простое сообщение")
             return False
 
     # Явные триггеры — НУЖЕН RAG
@@ -56,16 +48,17 @@ def _needs_rag_context(query: str) -> bool:
         r'(найди|поиск|покажи|открой|прочитай)',
         r'(сколько|итого|сумма|цена|стоимость)',
         r'(список|перечень|все\s)',
-        r'(micb|глодень|армянская)',  # Специфичные для твоих файлов
+        r'(micb|глодень|армянская)',
     ]
 
     for pattern in rag_triggers:
         if re.search(pattern, query_lower):
-            logger.info(f"✅ RAG нужен: найден триггер")
+            logger.info("✅ RAG нужен: найден триггер")
             return True
 
-    # По умолчанию — нужен RAG (на случай сложных вопросов)
-    return True
+    # По умолчанию — НЕ нужен RAG
+    logger.info("⏭️ RAG пропущен: нет триггеров")
+    return False
 
 
 async def agent_process(prompt: str, user_id: str):
@@ -98,15 +91,6 @@ async def agent_process(prompt: str, user_id: str):
 
     # Если роутер не обработал — LLM
     if result is None:
-        import json
-        try:
-            pretty = json.dumps(messages, ensure_ascii=False, indent=2)
-            logger.info("\n========== FULL PROMPT BEGIN ==========\n" + pretty + "\n========== FULL PROMPT END ==========\n")
-            print("\n========== FULL PROMPT BEGIN ==========")
-            print(pretty)
-            print("========== FULL PROMPT END ==========\n")
-        except Exception as e:
-            logger.error(f"❌ Failed to dump full prompt: {e}")
         result = await send_to_llm(messages)
 
     # Сохраняем ответ

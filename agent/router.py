@@ -2,6 +2,7 @@ import re
 import json
 import logging
 from pathlib import Path
+from typing import Optional, Tuple, List
 
 from agent.memory import memory
 from tools.file_tool import try_handle_file_command, select_file
@@ -25,8 +26,16 @@ EDIT_TRIGGERS = [
     r"вставь строку",
     r"новая строка",
     r"новая колонка",
+    r"отредактируй",
+    r"редактируй",
+    r"измени в файле",
+    r"измени файл",
+    r"обнови файл",
+    r"удали.*работ",
+    r"удали.*строк",
+    r"добавь.*в файл",
+    r"добавь.*в таблиц",
 ]
-
 
 def _is_edit_command(text: str) -> bool:
     text_lower = text.lower()
@@ -36,18 +45,86 @@ def _is_edit_command(text: str) -> bool:
     return False
 
 
-def _find_file_by_pattern(pattern: str) -> str:
+def _extract_filename_from_text(text: str) -> Optional[str]:
+    xlsx_match = re.search(r'([^\s]+\.xlsx?)', text, re.I)
+    if xlsx_match:
+        potential_name = xlsx_match.group(1)
+        return _find_file_by_pattern(potential_name)
+
+    keywords = []
+    for word in text.split():
+        word_clean = re.sub(r'[^\w]', '', word.lower())
+        if word_clean and len(word_clean) >= 3:
+            if word_clean not in ['отредактируй', 'редактируй', 'измени', 'удали',
+                                  'добавь', 'файл', 'таблицу', 'таблица', 'excel',
+                                  'строку', 'строки', 'колонку', 'ячейку', 'работы',
+                                  'все', 'выполненые', 'выполненные', 'невыполненные']:
+                keywords.append(word_clean)
+
+    if keywords:
+        for filepath in BASE_FILES_DIR.iterdir():
+            if filepath.suffix.lower() in ['.xlsx', '.xls']:
+                stem_lower = filepath.stem.lower()
+                matches = sum(1 for kw in keywords if kw in stem_lower)
+                if matches >= 1:
+                    return filepath.name
+
+    return None
+
+
+def _find_file_by_pattern(pattern: str) -> Optional[str]:
     if not pattern:
         return None
 
-    pattern_lower = pattern.lower().replace('.xlsx', '').replace('.xls', '')
+    pattern_clean = pattern.lower().replace('.xlsx', '').replace('.xls', '')
+    pattern_clean = re.sub(r'[^\w]', '', pattern_clean)
+
+    best_match = None
+    best_score = 0
 
     for filepath in BASE_FILES_DIR.iterdir():
         if filepath.suffix.lower() in ['.xlsx', '.xls']:
-            if pattern_lower in filepath.stem.lower():
+            stem_clean = re.sub(r'[^\w]', '', filepath.stem.lower())
+
+            if pattern_clean == stem_clean:
                 return filepath.name
 
-    return None
+            if pattern_clean in stem_clean:
+                score = len(pattern_clean) / len(stem_clean)
+                if score > best_score:
+                    best_score = score
+                    best_match = filepath.name
+
+    return best_match
+
+
+def _is_complex_edit_command(text: str) -> bool:
+    complex_patterns = [
+        r"удали.*все",
+        r"удали.*выполнен",
+        r"удали.*невыполнен",
+        r"удали.*где",
+        r"удали.*которые",
+        r"измени.*все",
+        r"замени.*все",
+        r"пересчитай",
+        r"обнови.*итог",
+    ]
+
+    text_lower = text.lower()
+    for pattern in complex_patterns:
+        if re.search(pattern, text_lower):
+            return True
+    return False
+
+
+def _get_edit_instruction(text: str, filename: str) -> str:
+    text_clean = text.lower()
+    text_clean = re.sub(r'отредактируй\s*', '', text_clean)
+    text_clean = re.sub(r'редактируй\s*', '', text_clean)
+    text_clean = re.sub(r'[^\s]+\.xlsx?', '', text_clean, flags=re.I)
+    text_clean = text_clean.strip()
+    return text_clean
 
 
 async def route_message(messages: list, user_id: str):
@@ -86,25 +163,62 @@ async def route_message(messages: list, user_id: str):
             return "Файл не найден. Укажите точное имя файла.", messages
 
     if _is_edit_command(last_user_msg):
-        filename, operations = parse_excel_command(last_user_msg)
+        filename = _extract_filename_from_text(last_user_msg)
+
+        if not filename:
+            results = smart_search(last_user_msg, user_id, limit=5)
+            excel_files = [r for r in results if r.get("is_table")]
+
+            if len(excel_files) == 1:
+                filename = excel_files[0]["filename"]
+            elif len(excel_files) > 1:
+                files_list = "\n".join([f"- {f['filename']}" for f in excel_files])
+                return f"Найдено несколько файлов:\n{files_list}\n\nУкажите какой файл редактировать.", messages
+
+        if not filename:
+            all_excel = [f.name for f in BASE_FILES_DIR.iterdir()
+                         if f.suffix.lower() in ['.xlsx', '.xls']]
+            if all_excel:
+                files_list = "\n".join([f"- {f}" for f in all_excel[:10]])
+                return f"Не удалось определить файл. Доступные файлы:\n{files_list}", messages
+            else:
+                return "Excel файлы не найдены.", messages
+
+        if _is_complex_edit_command(last_user_msg):
+            instruction = _get_edit_instruction(last_user_msg, filename)
+            file_content = read_excel(filename)
+
+            context = f"""Файл: {filename}
+
+Содержимое:
+{file_content}
+
+---
+Инструкция пользователя: {instruction}
+
+Проанализируй таблицу и сгенерируй JSON с операциями редактирования.
+Формат ответа:
+```json
+{{
+  "filename": "{filename}",
+  "operations": [
+    {{"action": "delete_row", "row": N}},
+    ...
+  ]
+}}
+```
+
+Доступные операции:
+- delete_row: удалить строку (row = номер строки)
+- edit_cell: изменить ячейку (row, col, value)
+- add_row: добавить строку (data = массив значений, after_row = после какой строки)
+"""
+            messages.append({"role": "user", "content": context})
+            return None, messages
+
+        _, operations = parse_excel_command(last_user_msg)
 
         if operations:
-            if not filename:
-                results = smart_search(last_user_msg, user_id, limit=5)
-                excel_files = [r for r in results if r.get("is_table")]
-
-                if len(excel_files) == 1:
-                    filename = excel_files[0]["filename"]
-                elif len(excel_files) > 1:
-                    state["awaiting_file_for_edit"] = True
-                    state["pending_operations"] = operations
-                    memory.set_state(user_id, state)
-
-                    files_list = "\n".join([f"- {f['filename']}" for f in excel_files])
-                    return f"Найдено несколько файлов:\n{files_list}\n\nУкажите какой файл редактировать.", messages
-                else:
-                    return "Не найден Excel файл. Укажите имя файла.", messages
-
             result = edit_excel(filename, operations)
 
             if result.get("success"):
@@ -112,6 +226,28 @@ async def route_message(messages: list, user_id: str):
                 return f"Выполнено ({ops_desc})!\n\nСкачать: {result['download_url']}", messages
             else:
                 return f"Ошибка: {result.get('error')}", messages
+        else:
+            file_content = read_excel(filename)
+            instruction = _get_edit_instruction(last_user_msg, filename)
+
+            context = f"""Файл: {filename}
+
+Содержимое:
+{file_content}
+
+---
+Инструкция: {instruction}
+
+Сгенерируй JSON с операциями:
+```json
+{{
+  "filename": "{filename}",
+  "operations": [...]
+}}
+```
+"""
+            messages.append({"role": "user", "content": context})
+            return None, messages
 
     if re.search(r"(найди|поиск|найди в файлах|search)\s+\w", last_user_msg, re.I):
         query = re.sub(r"(найди|поиск|найди в файлах|search)\s*", "", last_user_msg, flags=re.I).strip()
@@ -153,33 +289,11 @@ async def route_message(messages: list, user_id: str):
         except json.JSONDecodeError as e:
             logger.error(f"Ошибка парсинга JSON: {e}")
 
-    if any(ext in last_user_msg.lower() for ext in ["excel", ".xlsx", ".xls"]):
-        keywords = re.sub(r"(открой|прочитай|покажи|excel)", "", last_user_msg.lower())
-        for ext in [".xlsx", ".xls"]:
-            keywords = keywords.replace(ext, "")
-        keywords_list = [kw.strip() for kw in keywords.split() if kw.strip()]
-
-        matched_files = [
-            f for f in BASE_FILES_DIR.iterdir()
-            if f.suffix.lower() in [".xlsx", ".xls"]
-               and all(kw in f.stem.lower() for kw in keywords_list)
-        ]
-
-        if not matched_files:
-            return "Excel файл не найден.", messages
-
-        elif len(matched_files) == 1:
-            content = read_excel(matched_files[0].name)
+    if any(ext in last_user_msg.lower() for ext in [".xlsx", ".xls"]):
+        filename = _extract_filename_from_text(last_user_msg)
+        if filename:
+            content = read_excel(filename)
             return content, messages
-
-        else:
-            memory.set_user_files(user_id, matched_files)
-            state["awaiting_file_choice"] = True
-            state["awaiting_excel_choice"] = True
-            memory.set_state(user_id, state)
-            return "Найдено несколько Excel файлов: " + ", ".join(
-                f"{i + 1}) {f.name}" for i, f in enumerate(matched_files)
-            ), messages
 
     file_result = try_handle_file_command(last_user_msg, user_id)
     if file_result:

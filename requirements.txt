@@ -11,3 +11,4 @@ requests
 weaviate-client[embedded]
 sentence-transformers==2.2.2
 # pip install torch==2.2.0+cpu torchvision==0.24.1+cpu -f [https://download.pytorch.org/whl/torch_stable.html](https://download.pytorch.org/whl/torch_stable.html)
+anthropic

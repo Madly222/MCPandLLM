@@ -1,69 +1,18 @@
-# tools/file_tool.py
 import re
 from pathlib import Path
 from typing import Optional, List
 from agent.memory import memory
-from .utils import BASE_FILES_DIR
-
-# Для Word/PDF
-from docx import Document
-import PyPDF2
+from .utils import BASE_FILES_DIR, read_file
 
 STOP_WORDS = {"открой", "покажи", "прочитай", "можешь", "файл", "текст"}
 
-# --- Чтение файлов ---
-
-def read_text_file(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except Exception as e:
-        return f"Ошибка при чтении файла: {e}"
-
-def read_docx(path: Path) -> str:
-    try:
-        doc = Document(path)
-        return "\n".join([p.text for p in doc.paragraphs])
-    except Exception as e:
-        return f"Ошибка при чтении Word файла: {e}"
-
-def read_pdf(path: Path) -> str:
-    try:
-        text = ""
-        with open(path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
-        return text
-    except Exception as e:
-        return f"Ошибка при чтении PDF файла: {e}"
-
-def read_file(path: Path) -> str:
-    """
-    Универсальное чтение файла по расширению.
-    """
-    ext = path.suffix.lower()
-    if ext == ".txt":
-        return read_text_file(path)
-    elif ext == ".docx":
-        return read_docx(path)
-    elif ext == ".pdf":
-        return read_pdf(path)
-    else:
-        return f"Формат файла {ext} не поддерживается."
-
-
-# --- Поиск и выбор файлов ---
 
 def try_handle_file_command(text: str, user_id: str) -> Optional[str]:
-    """
-    Обрабатывает команды вида "открой/прочитай/покажи <keywords>".
-    """
     match = re.search(r"(прочитай|открой|покажи)\s*(.+)", text, re.I)
     if not match:
         return None
 
     raw = match.group(2).strip().lower()
-    # убираем расширения и стоп-слова
     for ext in [".txt", ".pdf", ".docx"]:
         raw = raw.replace(ext, "")
     keywords = [kw for kw in raw.split() if kw not in STOP_WORDS]
@@ -87,10 +36,8 @@ def try_handle_file_command(text: str, user_id: str) -> Optional[str]:
             f"{i + 1}) {f.name}" for i, f in enumerate(matched_files)
         )
 
+
 def select_file(user_id: str, choice: str) -> str:
-    """
-    Выбор файла из найденных по номеру.
-    """
     matched_files = memory.get_user_files(user_id)
     if not matched_files:
         return "Сначала выполните команду поиска файла."

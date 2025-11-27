@@ -120,14 +120,28 @@ def _build_rag_context(query: str, user_id: str) -> str:
 def _extract_and_apply_json_operations(llm_response: str) -> str:
     logger.info(f"Проверяем ответ LLM на наличие JSON ({len(llm_response)} символов)")
 
-    edit_match = re.search(
-        r'```json\s*(\{[\s\S]*?"operations"[\s\S]*?\})\s*```',
-        llm_response,
-        re.I
-    )
+    try:
+        # сначала пробуем найти блок ```json```
+        edit_match = re.search(
+            r'```json\s*(\{[\s\S]*?"operations"[\s\S]*?\})\s*```',
+            llm_response,
+            re.I
+        )
 
-    if not edit_match:
-        logger.info("JSON с операциями не найден в ответе")
+        if edit_match:
+            json_str = edit_match.group(1)
+        else:
+            # fallback: попробуем распарсить весь ответ как JSON
+            json_str = llm_response.strip()
+
+        edit_data = json.loads(json_str)
+        filename = edit_data.get("filename")
+        operations = edit_data.get("operations", [])
+    finally:
+        logger.info("Попытка распарсить JSON завершена")
+
+    if not operations:
+        logger.warning(f"Нет операций для применения к файлу {filename}")
         return llm_response
 
     logger.info("Найден JSON блок в ответе LLM")

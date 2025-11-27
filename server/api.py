@@ -1,14 +1,16 @@
 import os
 import logging
 from pathlib import Path
+from urllib.parse import quote
+
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi import UploadFile, File
+
 from agent.agent import agent_process
 from vector_store import vector_store
-from tools.file_tool import read_file
-from tools.excel_tool import read_excel
-from fastapi import UploadFile, File
 from tools.upload_tool import save_and_index_file
 from tools.chunking_tool import index_file
 
@@ -17,20 +19,27 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 web_dir = BASE_DIR / "web"
 
 STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
 DOWNLOADS_DIR = Path(os.getenv("DOWNLOADS_DIR", BASE_DIR / "downloads"))
 
+STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_USER_ID = "default"
 
 if web_dir.exists():
     app.mount("/web", StaticFiles(directory=web_dir), name="web")
-else:
-    logger.warning(f"Папка web не найдена: {web_dir}")
 
 
 def load_storage_files():
@@ -46,7 +55,7 @@ def load_storage_files():
     existing_files = {doc["filename"] for doc in existing_docs}
 
     if existing_files:
-        logger.info(f"Уже загружено {len(existing_files)} файлов, пропускаем")
+        logger.info(f"Уже загружено {len(existing_files)} файлов")
         return
 
     supported_extensions = {'.txt', '.pdf', '.docx', '.xlsx', '.xls', '.md', '.csv', '.log'}
@@ -60,9 +69,7 @@ def load_storage_files():
         try:
             result = index_file(file_path, DEFAULT_USER_ID)
             if result.get("success"):
-                logger.info(f"{file_path.name} загружен ({result.get('chunks', 1)} чанков)")
-            else:
-                logger.warning(f"{file_path.name}: {result.get('message')}")
+                logger.info(f"{file_path.name} загружен")
         except Exception as e:
             logger.error(f"Ошибка при загрузке {file_path.name}: {e}")
 
@@ -71,13 +78,11 @@ def load_storage_files():
 async def startup():
     if not vector_store.is_connected():
         if vector_store.connect():
-            logger.info("Weaviate подключен при старте сервера")
+            logger.info("Weaviate подключен")
         else:
             logger.warning("Не удалось подключиться к Weaviate")
 
-    logger.info("Запуск автозагрузки файлов из storage...")
     load_storage_files()
-    logger.info("Автозагрузка завершена")
 
 
 @app.get("/")
@@ -101,14 +106,14 @@ async def query(request: Request):
         return {"response": "Пустой запрос"}
 
     user_id = data.get("user_id", DEFAULT_USER_ID).strip()
-    logger.info(f"Получен запрос от user_id={user_id}: {prompt}")
+    logger.info(f"Запрос от {user_id}: {prompt}")
 
     try:
         response = await agent_process(prompt, user_id)
         return {"response": response}
     except Exception as e:
-        logger.exception(f"Ошибка обработки запроса user_id={user_id}")
-        return {"response": f"Ошибка при обработке запроса: {e}"}
+        logger.exception(f"Ошибка обработки")
+        return {"response": f"Ошибка: {e}"}
 
 
 @app.post("/upload")
@@ -117,11 +122,11 @@ async def upload_file(file: UploadFile = File(...), user_id: str = DEFAULT_USER_
         file_bytes = await file.read()
         success = save_and_index_file(file_bytes, file.filename, user_id=user_id)
         if success:
-            return {"message": f"Файл {file.filename} успешно загружен и проиндексирован"}
+            return {"message": f"Файл {file.filename} загружен"}
         else:
-            raise HTTPException(status_code=500, detail="Ошибка при сохранении или индексации файла")
+            raise HTTPException(status_code=500, detail="Ошибка сохранения")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка при загрузке файла: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/download/{filename:path}")
@@ -132,12 +137,22 @@ async def download_file(filename: str):
         file_path = STORAGE_DIR / filename
 
     if not file_path.exists():
+        logger.error(f"Файл не найден: {filename}")
+        logger.error(f"Проверено: {DOWNLOADS_DIR / filename}, {STORAGE_DIR / filename}")
         raise HTTPException(status_code=404, detail=f"Файл {filename} не найден")
 
+    logger.info(f"Скачивание: {file_path}")
+
+    encoded_filename = quote(filename)
+
     return FileResponse(
-        path=file_path,
+        path=str(file_path),
         filename=filename,
-        media_type="application/octet-stream"
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
     )
 
 
@@ -148,14 +163,37 @@ async def list_files():
     if STORAGE_DIR.exists():
         for f in STORAGE_DIR.iterdir():
             if f.is_file():
-                files.append({"name": f.name, "type": "storage"})
+                files.append({
+                    "name": f.name,
+                    "type": "storage",
+                    "size": f.stat().st_size,
+                    "download_url": f"/download/{f.name}"
+                })
 
     if DOWNLOADS_DIR.exists():
         for f in DOWNLOADS_DIR.iterdir():
             if f.is_file():
-                files.append({"name": f.name, "type": "download"})
+                files.append({
+                    "name": f.name,
+                    "type": "edited",
+                    "size": f.stat().st_size,
+                    "download_url": f"/download/{f.name}"
+                })
 
-    return {"files": files}
+    return {"files": files, "storage_dir": str(STORAGE_DIR), "downloads_dir": str(DOWNLOADS_DIR)}
+
+
+@app.get("/debug/paths")
+async def debug_paths():
+    return {
+        "base_dir": str(BASE_DIR),
+        "storage_dir": str(STORAGE_DIR),
+        "downloads_dir": str(DOWNLOADS_DIR),
+        "storage_exists": STORAGE_DIR.exists(),
+        "downloads_exists": DOWNLOADS_DIR.exists(),
+        "storage_files": [f.name for f in STORAGE_DIR.iterdir()] if STORAGE_DIR.exists() else [],
+        "downloads_files": [f.name for f in DOWNLOADS_DIR.iterdir()] if DOWNLOADS_DIR.exists() else [],
+    }
 
 
 @app.get("/debug/all-docs")
@@ -179,34 +217,10 @@ async def debug_all_docs(user_id: str = DEFAULT_USER_ID):
     }
 
 
-@app.get("/debug/search-test")
-async def debug_search_test(query: str = "MICB", user_id: str = DEFAULT_USER_ID):
-    from tools.search_tool import extract_search_terms, smart_search
-
-    result = {"query": query, "user_id": user_id, "steps": {}}
-
-    terms = extract_search_terms(query)
-    result["steps"]["1_terms"] = terms
-
-    if hasattr(vector_store, 'search_by_filename') and terms:
-        filename_results = vector_store.search_by_filename(terms[0], user_id, limit=20)
-        result["steps"]["2_by_filename"] = [r["filename"] for r in filename_results]
-    else:
-        result["steps"]["2_by_filename"] = []
-
-    semantic_results = vector_store.search_documents(query, user_id, limit=10)
-    result["steps"]["3_semantic"] = [r["filename"] for r in semantic_results]
-
-    final = smart_search(query, user_id, limit=10)
-    result["steps"]["4_final"] = [{"file": r["filename"], "type": r.get("match_type")} for r in final]
-
-    return result
-
-
 @app.get("/debug/clear-docs")
 async def clear_docs(user_id: str = DEFAULT_USER_ID):
     if not vector_store.is_connected():
         return {"error": "Weaviate не подключен"}
 
     vector_store.clear_user_data(user_id)
-    return {"message": f"Документы пользователя {user_id} удалены"}
+    return {"message": f"Документы {user_id} удалены"}

@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
 DOWNLOADS_DIR = Path(os.getenv("DOWNLOADS_DIR", BASE_DIR / "downloads"))
-SERVER_URL = os.getenv("SERVER_URL", "http://172.22.22.73:8000")
+SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
 
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -242,3 +243,41 @@ def get_excel_preview(filename: str, rows: int = 10, sheet_name: Optional[str] =
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+def parse_excel_command(command: str) -> List[Dict[str, Any]]:
+    """
+    Преобразует команду на естественном языке в операции Excel.
+
+    Примеры команд:
+    - "Добавь колонку 'работ - тех обслуживание'"
+    - "Добавь строку со значениями 312, 400, 450"
+    - "Измени ячейку B2 на 500"
+    """
+    ops = []
+
+    # Добавление колонки
+    col_match = re.search(r"добавь колонку ['\"](.+?)['\"]", command, re.I)
+    if col_match:
+        header = col_match.group(1).strip()
+        ops.append({"action": "add_column", "header": header})
+
+    # Добавление строки
+    row_match = re.search(r"добавь строку .*значениями ([\d,;\s]+)", command, re.I)
+    if row_match:
+        values = [v.strip() for v in re.split(r"[,\s;]+", row_match.group(1).strip()) if v]
+        ops.append({"action": "add_row", "data": values})
+
+    # Изменение ячейки
+    cell_match = re.search(r"измени ячейку (\w+)(\d+) на ([\d\w\s]+)", command, re.I)
+    if cell_match:
+        col, row, value = cell_match.groups()
+        try:
+            value = int(value)
+        except:
+            try:
+                value = float(value)
+            except:
+                value = value.strip()
+        ops.append({"action": "edit_cell", "row": int(row), "col": col.upper(), "value": value})
+
+    return ops

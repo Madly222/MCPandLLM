@@ -14,7 +14,6 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-
 class WeaviateStore:
 
     def __init__(self, host: str = "localhost", port: int = 8082):
@@ -23,9 +22,7 @@ class WeaviateStore:
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.client: Optional[weaviate.WeaviateClient] = None
 
-    # ------------------- Подключение -------------------
     def connect(self) -> bool:
-        """Подключение к Weaviate через Docker"""
         try:
             logger.info(f"🔌 Подключение к Weaviate на {self.host}:{self.port}...")
 
@@ -50,7 +47,6 @@ class WeaviateStore:
             return False
 
     def search_by_filename(self, filename_pattern: str, user_id: str, limit: int = 20) -> List[Dict]:
-        """Поиск по паттерну в имени файла"""
         if not self.is_connected():
             return []
 
@@ -98,7 +94,6 @@ class WeaviateStore:
                 pass
         logger.info("🔌 Отключено от Weaviate")
 
-    # ------------------- Создание схем -------------------
     def _create_schemas(self):
         if not self.is_connected():
             return
@@ -151,13 +146,8 @@ class WeaviateStore:
             except Exception as e:
                 logger.error(f"❌ Ошибка создания схемы {schema['name']}: {e}")
 
-    # ------------------- Работа с документами -------------------
     def add_document(self, content: str, filename: str, filetype: str,
                      user_id: str, metadata: Optional[Dict] = None) -> Dict:
-        """
-        Добавляет документ как есть (без дополнительного chunking).
-        Chunking — ответственность вызывающего кода (index_file.py).
-        """
         if not self.is_connected():
             return {"success": False, "message": "Weaviate не подключен"}
 
@@ -172,7 +162,6 @@ class WeaviateStore:
                 "created_at": datetime.now().isoformat(),
             }
 
-            # Сохраняем ВСЕ метаданные
             if metadata and isinstance(metadata, dict):
                 props["source_path"] = metadata.get("source_path", "")
                 props["chunk_index"] = metadata.get("chunk_index", 0)
@@ -229,7 +218,6 @@ class WeaviateStore:
             logger.error(f"❌ Ошибка поиска документов: {e}")
             return []
 
-    # ------------------- Работа с памятью -------------------
     def add_memory(self, fact: str, category: str, user_id: str,
                    importance: float = 1.0) -> Dict:
         if not self.is_connected():
@@ -267,7 +255,6 @@ class WeaviateStore:
             logger.error(f"❌ Ошибка поиска памяти: {e}")
             return []
 
-    # ------------------- Работа с чатом -------------------
     def add_chat_message(self, message: str, role: str, user_id: str):
         if not self.is_connected() or len(message.strip()) < 1:
             return
@@ -307,7 +294,6 @@ class WeaviateStore:
             logger.error(f"❌ Ошибка поиска истории: {e}")
             return []
 
-    # ------------------- Утилиты -------------------
     def get_stats(self) -> Dict:
         if not self.is_connected():
             return {"documents": 0, "memories": 0, "chat_messages": 0}
@@ -361,8 +347,6 @@ class WeaviateStore:
         except Exception as e:
             logger.error(f"❌ Ошибка очистки данных: {e}")
 
-
-# Глобальный экземпляр
 vector_store = WeaviateStore()
 
 if __name__ == "__main__":

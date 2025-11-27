@@ -8,7 +8,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+client = Anthropic(api_key=os.getenv("AI_API_KEY"))
 
 DEFAULT_MODEL = "claude-3-haiku-20240307"
 DEFAULT_MAX_TOKENS = 2048

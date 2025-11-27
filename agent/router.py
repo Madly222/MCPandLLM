@@ -37,6 +37,7 @@ EDIT_TRIGGERS = [
     r"добавь.*в таблиц",
 ]
 
+
 def _is_edit_command(text: str) -> bool:
     text_lower = text.lower()
     for trigger in EDIT_TRIGGERS:
@@ -46,10 +47,38 @@ def _is_edit_command(text: str) -> bool:
 
 
 def _extract_filename_from_text(text: str) -> Optional[str]:
-    xlsx_match = re.search(r'([^\s]+\.xlsx?)', text, re.I)
+    text_lower = text.lower()
+
+    best_match = None
+    best_match_len = 0
+
+    for filepath in BASE_FILES_DIR.iterdir():
+        if filepath.suffix.lower() in ['.xlsx', '.xls']:
+            filename = filepath.name
+            filename_lower = filename.lower()
+
+            if filename_lower in text_lower:
+                if len(filename) > best_match_len:
+                    best_match = filename
+                    best_match_len = len(filename)
+
+            stem_lower = filepath.stem.lower()
+            if stem_lower in text_lower:
+                if len(filepath.stem) > best_match_len:
+                    best_match = filename
+                    best_match_len = len(filepath.stem)
+
+    if best_match:
+        logger.info(f"Найден файл по точному совпадению: {best_match}")
+        return best_match
+
+    xlsx_match = re.search(r'(\S+\.xlsx?)', text, re.I)
     if xlsx_match:
         potential_name = xlsx_match.group(1)
-        return _find_file_by_pattern(potential_name)
+        found = _find_file_by_pattern(potential_name)
+        if found:
+            logger.info(f"Найден файл по паттерну: {found}")
+            return found
 
     keywords = []
     for word in text.split():
@@ -62,12 +91,20 @@ def _extract_filename_from_text(text: str) -> Optional[str]:
                 keywords.append(word_clean)
 
     if keywords:
+        best_file = None
+        best_score = 0
+
         for filepath in BASE_FILES_DIR.iterdir():
             if filepath.suffix.lower() in ['.xlsx', '.xls']:
                 stem_lower = filepath.stem.lower()
-                matches = sum(1 for kw in keywords if kw in stem_lower)
-                if matches >= 1:
-                    return filepath.name
+                score = sum(1 for kw in keywords if kw in stem_lower)
+                if score > best_score:
+                    best_score = score
+                    best_file = filepath.name
+
+        if best_file:
+            logger.info(f"Найден файл по ключевым словам ({best_score} совпадений): {best_file}")
+            return best_file
 
     return None
 
@@ -131,6 +168,8 @@ async def route_message(messages: list, user_id: str):
     last_user_msg = messages[-1]["content"]
     state = memory.get_state(user_id) or {}
 
+    logger.info(f"Router: обрабатываем '{last_user_msg[:50]}...'")
+
     if state.get("awaiting_file_choice"):
         if state.get("awaiting_excel_choice"):
             from tools.excel_tool import select_excel_file
@@ -163,7 +202,9 @@ async def route_message(messages: list, user_id: str):
             return "Файл не найден. Укажите точное имя файла.", messages
 
     if _is_edit_command(last_user_msg):
+        logger.info("Router: обнаружена команда редактирования")
         filename = _extract_filename_from_text(last_user_msg)
+        logger.info(f"Router: извлечённый файл = {filename}")
 
         if not filename:
             results = smart_search(last_user_msg, user_id, limit=5)
@@ -214,6 +255,7 @@ async def route_message(messages: list, user_id: str):
 - add_row: добавить строку (data = массив значений, after_row = после какой строки)
 """
             messages.append({"role": "user", "content": context})
+            logger.info(f"Router: сложная команда, отправляем в LLM. Файл: {filename}")
             return None, messages
 
         _, operations = parse_excel_command(last_user_msg)

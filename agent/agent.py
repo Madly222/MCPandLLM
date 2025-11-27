@@ -1,11 +1,14 @@
+import re
+import json
+import logging
+
 from agent.memory import memory
 from agent.router import route_message
 from agent.prompts import SYSTEM_PROMPT
 from agent.models import send_to_llm
 from vector_store import vector_store
 from tools.search_tool import get_rag_context, get_rag_context_for_summary, needs_full_context
-import re
-import logging
+from tools.edit_excel_tool import edit_excel
 
 logger = logging.getLogger(__name__)
 
@@ -112,3 +115,56 @@ def _build_rag_context(query: str, user_id: str) -> str:
     except Exception as e:
         logger.error(f"Ошибка RAG: {e}")
         return ""
+
+
+def _extract_and_apply_json_operations(llm_response: str) -> str:
+    logger.info(f"Проверяем ответ LLM на наличие JSON ({len(llm_response)} символов)")
+
+    edit_match = re.search(
+        r'```json\s*(\{[\s\S]*?"operations"[\s\S]*?\})\s*```',
+        llm_response,
+        re.I
+    )
+
+    if not edit_match:
+        logger.info("JSON с операциями не найден в ответе")
+        return llm_response
+
+    logger.info("Найден JSON блок в ответе LLM")
+
+    try:
+        json_str = edit_match.group(1)
+        logger.info(f"JSON строка: {json_str[:200]}...")
+
+        edit_data = json.loads(json_str)
+        filename = edit_data.get("filename")
+        operations = edit_data.get("operations", [])
+
+        logger.info(f"Распарсено: filename={filename}, operations={len(operations)}")
+
+        if not filename or not operations:
+            logger.warning("filename или operations пустые")
+            return llm_response
+
+        logger.info(f"Применяем {len(operations)} операций к файлу: {filename}")
+
+        result = edit_excel(filename, operations)
+
+        logger.info(f"Результат edit_excel: {result}")
+
+        if result.get("success"):
+            explanation = llm_response[:edit_match.start()].strip()
+            if explanation:
+                return f"{explanation}\n\nГотово! Скачать: {result['download_url']}"
+            else:
+                return f"Файл отредактирован!\n\nСкачать: {result['download_url']}"
+        else:
+            return f"{llm_response}\n\nОшибка применения: {result.get('error')}"
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Ошибка парсинга JSON: {e}")
+        logger.error(f"JSON строка была: {edit_match.group(1)[:500]}")
+        return llm_response
+    except Exception as e:
+        logger.error(f"Ошибка применения операций: {e}", exc_info=True)
+        return f"{llm_response}\n\nОшибка: {e}"

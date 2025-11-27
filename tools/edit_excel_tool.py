@@ -72,43 +72,17 @@ def edit_excel(
         sheet_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Редактирует Excel файл и возвращает ссылку на скачивание.
-
-    Операции:
-    - {"action": "add_row", "data": ["val1", "val2", ...], "after_row": 5}
-    - {"action": "edit_cell", "row": 5, "col": 2, "value": "новое значение"}
-    - {"action": "edit_cell", "row": 5, "col": "B", "value": "новое значение"}
-    - {"action": "delete_row", "row": 5}
-    - {"action": "add_column", "header": "Новая колонка", "after_col": 3}
-    - {"action": "delete_column", "col": 3}
-
-    Возвращает:
-    {
-        "success": True,
-        "download_url": "http://localhost:8000/download/file_edited_20250115.xlsx",
-        "filename": "file_edited_20250115.xlsx",
-        "operations_applied": 3
-    }
+    Редактирует Excel файл безопасно, проверяя строки, колонки и существование директорий.
     """
     source_path = _find_source_file(filename)
     if not source_path:
-        return {
-            "success": False,
-            "error": f"Файл {filename} не найден"
-        }
+        return {"success": False, "error": f"Файл {filename} не найден"}
 
     try:
         wb = load_workbook(source_path)
-
-        if sheet_name:
-            if sheet_name not in wb.sheetnames:
-                return {
-                    "success": False,
-                    "error": f"Лист '{sheet_name}' не найден. Доступные: {wb.sheetnames}"
-                }
-            ws = wb[sheet_name]
-        else:
-            ws = wb.active
+        ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active if not sheet_name else None
+        if ws is None:
+            return {"success": False, "error": f"Лист '{sheet_name}' не найден"}
 
         ops_applied = 0
 
@@ -118,62 +92,59 @@ def edit_excel(
             if action == "add_row":
                 data = op.get("data", [])
                 after_row = op.get("after_row", ws.max_row)
-
+                after_row = max(after_row, 0)
                 ws.insert_rows(after_row + 1)
-                new_row = after_row + 1
-
                 for col_idx, value in enumerate(data, start=1):
-                    cell = ws.cell(row=new_row, column=col_idx, value=value)
+                    cell = ws.cell(row=after_row + 1, column=col_idx, value=value)
                     if after_row > 0:
                         source_cell = ws.cell(row=after_row, column=col_idx)
                         _copy_cell_style(source_cell, cell)
-
                 ops_applied += 1
-                logger.info(f"Добавлена строка {new_row}: {data}")
 
             elif action == "edit_cell":
                 row = op.get("row")
                 col = op.get("col")
                 value = op.get("value")
-
+                if row is None or col is None:
+                    logger.warning(f"Пропущены row/col для edit_cell: {op}")
+                    continue
                 if isinstance(col, str):
                     from openpyxl.utils import column_index_from_string
                     col = column_index_from_string(col)
-
-                if row and col:
-                    ws.cell(row=row, column=col, value=value)
-                    ops_applied += 1
-                    logger.info(f"Изменена ячейка ({row}, {col}): {value}")
+                ws.cell(row=row, column=col, value=value)
+                ops_applied += 1
 
             elif action == "delete_row":
                 row = op.get("row")
-                if row:
+                if row and row > 0:
                     ws.delete_rows(row)
                     ops_applied += 1
-                    logger.info(f"Удалена строка {row}")
 
             elif action == "add_column":
                 header = op.get("header", "")
                 after_col = op.get("after_col", ws.max_column)
-
+                after_col = max(after_col, 0)
                 ws.insert_cols(after_col + 1)
-                new_col = after_col + 1
-                ws.cell(row=1, column=new_col, value=header)
+                ws.cell(row=1, column=after_col + 1, value=header)
                 ops_applied += 1
-                logger.info(f"Добавлена колонка {new_col}: {header}")
 
             elif action == "delete_column":
                 col = op.get("col")
+                if col is None:
+                    logger.warning(f"Пропущен col для delete_column: {op}")
+                    continue
                 if isinstance(col, str):
                     from openpyxl.utils import column_index_from_string
                     col = column_index_from_string(col)
-                if col:
-                    ws.delete_cols(col)
-                    ops_applied += 1
-                    logger.info(f"Удалена колонка {col}")
+                ws.delete_cols(col)
+                ops_applied += 1
 
             else:
                 logger.warning(f"Неизвестная операция: {action}")
+
+        # Генерация выходного файла
+        if not DOWNLOADS_DIR.exists():
+            DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
         output_filename = _generate_output_filename(filename)
         output_path = DOWNLOADS_DIR / output_filename
@@ -182,23 +153,16 @@ def edit_excel(
 
         download_url = f"{SERVER_URL}/download/{output_filename}"
 
-        logger.info(f"Файл сохранён: {output_path}")
-
         return {
             "success": True,
             "download_url": download_url,
             "filename": output_filename,
-            "operations_applied": ops_applied,
-            "message": f"Файл отредактирован. Скачать: {download_url}"
+            "operations_applied": ops_applied
         }
 
     except Exception as e:
-        logger.error(f"Ошибка редактирования {filename}: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
+        logger.error(f"Ошибка редактирования {filename}: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
 
 def add_row_to_excel(
         filename: str,

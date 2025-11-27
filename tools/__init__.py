@@ -4,10 +4,15 @@ from .file_tool import try_handle_file_command, select_file
 from .search_tool import (
     smart_search,
     get_rag_context,
-    get_rag_context_for_summary,
-    get_full_document_content,
-    list_available_documents,
     search_documents,
+    perform_search,
     needs_full_context,
 )
 from .multi_file_tool import process_multiple_files, compare_files, summarize_all_user_files
+from .edit_excel_tool import (
+    edit_excel,
+    add_row_to_excel,
+    edit_cell_in_excel,
+    delete_row_from_excel,
+    get_excel_preview,
+)

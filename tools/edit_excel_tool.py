@@ -17,12 +17,11 @@ SERVER_URL = os.getenv("SERVER_URL", "http://172.22.22.73:8000")
 
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-
 def _find_source_file(filename: str) -> Optional[Path]:
     for directory in [STORAGE_DIR, DOWNLOADS_DIR]:
         path = directory / filename
         if path.exists():
-            logger.info(f"Найден файл: {path}")
+            logger.info(f"\033[93mНайден файл: {path}\033[0m")
             return path
 
     filename_clean = filename.lower().replace(' ', '').replace('(', '').replace(')', '')

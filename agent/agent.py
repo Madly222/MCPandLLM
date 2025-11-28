@@ -75,7 +75,8 @@ async def agent_process(prompt: str, user_id: str):
     result, updated_messages = await route_message(messages, user_id)
 
     if result is None:
-        result = await send_to_llm(messages)
+        llm_response = await send_to_llm(updated_messages)
+        result = _extract_and_apply_json_operations(llm_response)
 
     if vector_store.is_connected():
         vector_store.add_chat_message(result, "assistant", user_id)

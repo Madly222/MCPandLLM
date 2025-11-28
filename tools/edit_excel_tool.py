@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from copy import copy
 
+from openpyxl.workbook.properties import CalcProperties
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
@@ -197,6 +198,7 @@ def edit_excel(
 
         output_filename = _generate_output_filename(filename)
         output_path = DOWNLOADS_DIR / output_filename
+        wb.calculation = CalcProperties(fullCalcOnLoad=True)
         wb.save(output_path)
         wb.close()
 

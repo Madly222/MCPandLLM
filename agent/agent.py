@@ -119,57 +119,56 @@ def _build_rag_context(query: str, user_id: str) -> str:
 
 
 def _extract_and_apply_json_operations(llm_response: str) -> str:
-    """
-    Проверяет ответ LLM на JSON с операциями редактирования и применяет их к файлу.
-    Работает безопасно даже если JSON нет или он некорректен.
-    """
-    logger.info(f"Ответ LLM (первые 2000 символов): {llm_response[:2000]}")
+    logger.info(f"Проверяем ответ LLM на наличие JSON ({len(llm_response)} символов)")
 
-    edit_match = None
-    json_str = None
+    edit_match = re.search(
+        r'```json\s*(\{[\s\S]*?"operations"[\s\S]*?\})\s*```',
+        llm_response,
+        re.I
+    )
+
+    if not edit_match:
+        logger.info("JSON с операциями не найден в ответе")
+        return llm_response
+
+    logger.info("Найден JSON блок в ответе LLM")
+
     try:
-        # Ищем блок ```json ... ```
-        edit_match = re.search(
-            r'```json\s*(\{[\s\S]*?"operations"[\s\S]*?\})\s*```',
-            llm_response,
-            re.I
-        )
+        json_str = edit_match.group(1)
+        json_str = re.sub(r'//.*?(?=\n|$)', '', json_str)
+        json_str = re.sub(r',\s*}', '}', json_str)
+        json_str = re.sub(r',\s*]', ']', json_str)
+        logger.info(f"JSON строка: {json_str[:200]}...")
 
-        if edit_match:
-            json_str = edit_match.group(1)
-        else:
-            # fallback: попробуем весь ответ как JSON
-            json_str = llm_response.strip()
-
-        # Парсим JSON
         edit_data = json.loads(json_str)
         filename = edit_data.get("filename")
         operations = edit_data.get("operations", [])
 
-    except json.JSONDecodeError as e:
-        logger.error(f"Ошибка парсинга JSON: {e}")
-        logger.debug(f"JSON строка была: {json_str[:500] if json_str else 'None'}")
-        return llm_response
-    except Exception as e:
-        logger.error(f"Ошибка обработки JSON: {e}", exc_info=True)
-        return llm_response
+        logger.info(f"Распарсено: filename={filename}, operations={len(operations)}")
 
-    if not filename or not operations:
-        logger.warning(f"Нет filename или операций в JSON: filename={filename}, operations={operations}")
-        return llm_response
+        if not filename or not operations:
+            logger.warning("filename или operations пустые")
+            return llm_response
 
-    try:
-        logger.info(f"Применяем {len(operations)} операций к файлу {filename}")
+        logger.info(f"Применяем {len(operations)} операций к файлу: {filename}")
+
         result = edit_excel(filename, operations)
 
+        logger.info(f"Результат edit_excel: {result}")
+
         if result.get("success"):
-            explanation = llm_response[:edit_match.start()].strip() if edit_match else ""
+            explanation = llm_response[:edit_match.start()].strip()
             if explanation:
                 return f"{explanation}\n\nГотово! Скачать: {result['download_url']}"
-            return f"Файл отредактирован!\n\nСкачать: {result['download_url']}"
+            else:
+                return f"Файл отредактирован!\n\nСкачать: {result['download_url']}"
         else:
             return f"{llm_response}\n\nОшибка применения: {result.get('error')}"
 
+    except json.JSONDecodeError as e:
+        logger.error(f"Ошибка парсинга JSON: {e}")
+        logger.error(f"JSON строка была: {edit_match.group(1)[:500]}")
+        return llm_response
     except Exception as e:
         logger.error(f"Ошибка применения операций: {e}", exc_info=True)
         return f"{llm_response}\n\nОшибка: {e}"

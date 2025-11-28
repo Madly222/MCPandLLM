@@ -26,6 +26,36 @@ def _detect_headers(rows: List[List[str]]) -> Tuple[Optional[List[str]], int]:
     return None, 0
 
 
+def _to_markdown_table_with_row_numbers(
+        headers: List[str],
+        data_rows: List[List[str]],
+        start_row: int = 2,
+        max_rows: int = 500
+) -> str:
+    if not headers:
+        return ""
+
+    col_count = len(headers)
+    clean_headers = [h if h else f"col_{i}" for i, h in enumerate(headers)]
+
+    lines = []
+    lines.append("| ROW | " + " | ".join(clean_headers) + " |")
+    lines.append("| --- | " + " | ".join(["---"] * col_count) + " |")
+
+    for i, row in enumerate(data_rows[:max_rows]):
+        excel_row = start_row + i
+        cells = []
+        for j in range(col_count):
+            val = row[j] if j < len(row) else ""
+            cells.append(val.replace("|", "/").replace("\n", " "))
+        lines.append(f"| {excel_row} | " + " | ".join(cells) + " |")
+
+    if len(data_rows) > max_rows:
+        lines.append(f"\n... и ещё {len(data_rows) - max_rows} строк")
+
+    return "\n".join(lines)
+
+
 def _to_markdown_table(headers: List[str], data_rows: List[List[str]], max_rows: int = 500) -> str:
     if not headers:
         return ""
@@ -86,7 +116,7 @@ def _generate_summary(filename: str, sheets_info: List[Dict]) -> str:
     return ". ".join(parts)
 
 
-def read_excel(filename: str) -> str:
+def read_excel(filename: str, with_row_numbers: bool = False) -> str:
     path = BASE_FILES_DIR / filename
     if not path.exists():
         return f"Файл '{filename}' не найден."
@@ -100,10 +130,12 @@ def read_excel(filename: str) -> str:
             parts.append(f"\n## Лист: {sheet.title}\n")
 
             all_rows = []
-            for row in sheet.iter_rows(values_only=True):
+            row_numbers = []
+            for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
                 cells = [_format_cell(cell) for cell in row]
                 if any(cell for cell in cells):
                     all_rows.append(cells)
+                    row_numbers.append(row_idx)
 
             if not all_rows:
                 parts.append("(пустой лист)\n")
@@ -112,23 +144,38 @@ def read_excel(filename: str) -> str:
             headers, header_idx = _detect_headers(all_rows)
 
             if header_idx > 0:
-                for row in all_rows[:header_idx]:
+                for i, row in enumerate(all_rows[:header_idx]):
                     info = " | ".join(c for c in row if c)
                     if info:
-                        parts.append(f"**{info}**\n")
+                        if with_row_numbers:
+                            parts.append(f"**[ROW {row_numbers[i]}] {info}**\n")
+                        else:
+                            parts.append(f"**{info}**\n")
 
             if headers:
                 data_rows = all_rows[header_idx + 1:]
-                md_table = _to_markdown_table(headers, data_rows)
+                start_row = row_numbers[header_idx + 1] if header_idx + 1 < len(row_numbers) else header_idx + 2
+
+                if with_row_numbers:
+                    md_table = _to_markdown_table_with_row_numbers(headers, data_rows, start_row=start_row)
+                else:
+                    md_table = _to_markdown_table(headers, data_rows)
                 parts.append(md_table)
             else:
-                for row in all_rows:
-                    parts.append(" | ".join(c for c in row if c) + "\n")
+                for i, row in enumerate(all_rows):
+                    if with_row_numbers:
+                        parts.append(f"[ROW {row_numbers[i]}] " + " | ".join(c for c in row if c) + "\n")
+                    else:
+                        parts.append(" | ".join(c for c in row if c) + "\n")
 
         return "\n".join(parts)
 
     except Exception as e:
         return f"Ошибка чтения Excel: {e}"
+
+
+def read_excel_for_edit(filename: str) -> str:
+    return read_excel(filename, with_row_numbers=True)
 
 
 def read_excel_structured(filename: str) -> Dict:

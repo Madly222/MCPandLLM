@@ -37,7 +37,6 @@ EDIT_TRIGGERS = [
     r"добавь.*в таблиц",
 ]
 
-
 def _is_edit_command(text: str) -> bool:
     text_lower = text.lower()
     for trigger in EDIT_TRIGGERS:

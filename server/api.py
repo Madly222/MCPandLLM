@@ -1,5 +1,7 @@
 import os
 import logging
+import asyncio
+
 from pathlib import Path
 from urllib.parse import quote
 
@@ -83,7 +85,17 @@ async def startup():
             logger.warning("Не удалось подключиться к Weaviate")
 
     load_storage_files()
+    asyncio.create_task(periodic_task())
 
+async def periodic_task():
+    while True:
+        try:
+            load_storage_files()
+            logger.info("load_storage_files выполнен")
+        except Exception as e:
+            logger.error(f"Ошибка periodic_task: {e}")
+
+        await asyncio.sleep(300)
 
 @app.get("/")
 async def index():

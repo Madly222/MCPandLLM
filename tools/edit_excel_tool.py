@@ -5,16 +5,16 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from copy import copy
 
-from openpyxl.workbook.properties import CalcProperties
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+from openpyxl.workbook.properties import CalcProperties
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
 DOWNLOADS_DIR = Path(os.getenv("DOWNLOADS_DIR", BASE_DIR / "downloads"))
-SERVER_URL = os.getenv("SERVER_URL", "http://172.22.22.73:8000")
+SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
 
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -169,9 +169,10 @@ def edit_excel(
             elif action == "delete_row":
                 row = op.get("row")
                 if row:
-                    ws.delete_rows(row)
+                    for col in range(1, ws.max_column + 1):
+                        ws.cell(row=row, column=col).value = None
                     ops_applied += 1
-                    logger.info(f"Удалена строка {row}")
+                    logger.info(f"Очищена строка {row}")
 
             elif action == "add_column":
                 header = op.get("header", "")
@@ -198,7 +199,9 @@ def edit_excel(
 
         output_filename = _generate_output_filename(filename)
         output_path = DOWNLOADS_DIR / output_filename
+
         wb.calculation = CalcProperties(fullCalcOnLoad=True)
+
         wb.save(output_path)
         wb.close()
 

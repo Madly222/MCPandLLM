@@ -6,7 +6,7 @@ from typing import Optional, Tuple, List
 
 from agent.memory import memory
 from tools.file_tool import try_handle_file_command, select_file
-from tools.excel_tool import read_excel
+from tools.excel_tool import read_excel, read_excel_for_edit
 from tools.utils import BASE_FILES_DIR
 from tools.search_tool import perform_search, smart_search
 from tools.edit_excel_tool import edit_excel, get_excel_preview
@@ -36,6 +36,7 @@ EDIT_TRIGGERS = [
     r"добавь.*в файл",
     r"добавь.*в таблиц",
 ]
+
 
 def _is_edit_command(text: str) -> bool:
     text_lower = text.lower()
@@ -226,9 +227,11 @@ async def route_message(messages: list, user_id: str):
 
         if _is_complex_edit_command(last_user_msg):
             instruction = _get_edit_instruction(last_user_msg, filename)
-            file_content = read_excel(filename)
+            file_content = read_excel_for_edit(filename)
 
             context = f"""Файл: {filename}
+
+ВАЖНО: Колонка ROW содержит РЕАЛЬНЫЕ номера строк Excel. Используй именно эти номера в операциях!
 
 Содержимое:
 {file_content}
@@ -268,10 +271,12 @@ async def route_message(messages: list, user_id: str):
             else:
                 return f"Ошибка: {result.get('error')}", messages
         else:
-            file_content = read_excel(filename)
+            file_content = read_excel_for_edit(filename)
             instruction = _get_edit_instruction(last_user_msg, filename)
 
             context = f"""Файл: {filename}
+
+ВАЖНО: Колонка ROW содержит РЕАЛЬНЫЕ номера строк Excel. Используй именно эти номера в операциях!
 
 Содержимое:
 {file_content}

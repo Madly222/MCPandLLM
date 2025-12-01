@@ -114,7 +114,7 @@ def index_file_for_user(file_path: Path, user_id: str) -> dict:
     try:
         # Read content
         if file_path.suffix.lower() in ['.xlsx', '.xls']:
-            raw = read_excel(file_path.name)
+            raw = read_excel(str(file_path))
             if isinstance(raw, list):
                 # join rows and cells into text
                 content = "\n".join(" ".join(map(str, row)) for row in raw)

@@ -1,4 +1,12 @@
+// В начале файла, при загрузке страницы, проверим токен
 document.addEventListener('DOMContentLoaded', () => {
+    const token = localStorage.getItem("token");
+    // allow access to login page itself without redirect
+    if (!token && !window.location.pathname.endsWith("/web/login.html")) {
+        window.location.href = "/web/login.html";
+        return;
+    }
+
 const input = document.getElementById('prompt');
 const sendBtn = document.getElementById('sendBtn');
 const chatContainer = document.getElementById('chat-container');
@@ -21,8 +29,11 @@ async function sendPrompt() {
     try {
         const res = await fetch('/query', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ prompt: message, user_id: 'default' })
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + localStorage.getItem('token')
+            },
+            body: JSON.stringify({ prompt: message, user_id: localStorage.getItem('username') })
         });
 
         const data = await res.json();
@@ -58,9 +69,13 @@ fileInput.addEventListener('change', async () => {
     formData.append('user_id', 'default');
 
     try {
-        const res = await fetch('/upload', {
-            method: 'POST',
-            body: formData
+           const res = await fetch('/upload', {
+               method: 'POST',
+               headers: {
+                   'Authorization': 'Bearer ' + localStorage.getItem('token')
+               },
+               body: formData
+           });
         });
 
         const data = await res.json();

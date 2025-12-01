@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Вход</title>
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<h2>Вход в MCP LLM Assistant</h2>
+
+<div class="login-box" style="width:300px;margin:20px auto;">
+  <input id="username" placeholder="Логин" style="width:100%;margin-bottom:8px;padding:8px;">
+  <input id="password" type="password" placeholder="Пароль" style="width:100%;margin-bottom:8px;padding:8px;">
+  <button id="loginBtn" style="width:100%;">Войти</button>
+  <div id="err" style="color:red;margin-top:8px;"></div>
+</div>
+
+<script>
+document.getElementById("loginBtn").addEventListener("click", async () => {
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value;
+    const err = document.getElementById("err");
+    err.innerText = "";
+
+    if (!username || !password) {
+        err.innerText = "Введите логин и пароль";
+        return;
+    }
+
+    try {
+        const res = await fetch("/login", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            err.innerText = data.message || "Ошибка входа";
+            return;
+        }
+
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("username", data.username || username);
+        localStorage.setItem("role", data.role || "");
+
+        // redirect to main
+        window.location.href = "/";
+    } catch (e) {
+        err.innerText = "Сервер недоступен";
+    }
+});
+</script>
+</body>
+</html>

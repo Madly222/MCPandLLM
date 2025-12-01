@@ -1,6 +1,8 @@
+# main.py (обновлённый)
 import os
 import logging
 import asyncio
+import sys
 
 from pathlib import Path
 from urllib.parse import quote
@@ -16,6 +18,9 @@ from vector_store import vector_store
 from tools.upload_tool import save_and_index_file
 from tools.chunking_tool import index_file
 
+from users import verify_user  # our users.py
+from auth import create_access_token, decode_access_token  # our auth.py
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -29,7 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 web_dir = BASE_DIR / "web"
 
 STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
@@ -44,7 +49,50 @@ if web_dir.exists():
     app.mount("/web", StaticFiles(directory=web_dir), name="web")
 
 
+# -------------- AUTH MIDDLEWARE --------------
+PUBLIC_PATHS = {
+    "/login",
+    "/web/login.html",
+    "/web/style.css",
+    "/web/script.js",
+    "/favicon.ico",
+    "/web/"
+}
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    # Allow public paths and static resources
+    path = request.url.path
+    if path.startswith("/web/") or path in PUBLIC_PATHS:
+        # allow /web/* to be served (login page, assets)
+        return await call_next(request)
+
+    # Allow OpenAPI docs if you want (optional)
+    if path.startswith("/docs") or path.startswith("/openapi.json"):
+        return await call_next(request)
+
+    # Extract token
+    auth_header = request.headers.get("Authorization", "")
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1]
+
+    if not token:
+        return JSONResponse({"success": False, "message": "Authorization required"}, status_code=401)
+
+    try:
+        data = decode_access_token(token)
+        request.state.user = data["username"]
+        request.state.role = data["role"]
+    except HTTPException as e:
+        return JSONResponse({"success": False, "message": e.detail}, status_code=e.status_code)
+
+    return await call_next(request)
+# -------------- END AUTH MIDDLEWARE --------------
+
+
 def load_storage_files():
+    # Keep old behavior: initial loading uses DEFAULT_USER_ID
     if not vector_store.is_connected():
         logger.warning("Weaviate не подключен.")
         return
@@ -67,7 +115,6 @@ def load_storage_files():
             continue
         if file_path.suffix.lower() not in supported_extensions:
             continue
-
         try:
             result = index_file(file_path, DEFAULT_USER_ID)
             if result.get("success"):
@@ -87,6 +134,7 @@ async def startup():
     load_storage_files()
     asyncio.create_task(periodic_task())
 
+
 async def periodic_task():
     while True:
         try:
@@ -97,8 +145,25 @@ async def periodic_task():
 
         await asyncio.sleep(300)
 
+
+@app.post("/login")
+async def login(data: dict):
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    if not username or not password:
+        return JSONResponse({"success": False, "message": "Username and password required"}, status_code=400)
+
+    ok, role = verify_user(username, password)
+    if not ok:
+        return JSONResponse({"success": False, "message": "Invalid credentials"}, status_code=401)
+
+    token = create_access_token(username, role)
+    return {"success": True, "token": token, "username": username, "role": role}
+
+
 @app.get("/")
-async def index():
+async def index(request: Request):
+    # Serve index.html only for authenticated users (middleware already set request.state.user)
     index_file_path = web_dir / "index.html"
     if index_file_path.exists():
         return FileResponse(index_file_path)
@@ -117,22 +182,39 @@ async def query(request: Request):
     if not prompt:
         return {"response": "Пустой запрос"}
 
-    user_id = data.get("user_id", DEFAULT_USER_ID).strip()
-    logger.info(f"Запрос от {user_id}: {prompt}")
+    # Ensure user can't impersonate others
+    token_user = request.state.user
+    body_user = data.get("user_id", token_user)
+    if body_user != token_user:
+        return {"response": "User mismatch (invalid user_id)"}
+
+    logger.info(f"Запрос от {token_user}: {prompt}")
 
     try:
-        response = await agent_process(prompt, user_id)
+        response = await agent_process(prompt, token_user)
         return {"response": response}
     except Exception as e:
-        logger.exception(f"Ошибка обработки")
+        logger.exception("Ошибка обработки")
         return {"response": f"Ошибка: {e}"}
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...), user_id: str = DEFAULT_USER_ID):
+async def upload_file(request: Request, file: UploadFile = File(...), user_id: str = None):
+    # user_id optional in form: must match token user
+    token_user = request.state.user
+
+    # read form field user_id if provided
+    if not user_id:
+        # attempt to get 'user_id' from form data manually (some clients)
+        form = await request.form()
+        user_id = form.get("user_id") or token_user
+
+    if user_id != token_user:
+        raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
+
     try:
         file_bytes = await file.read()
-        success = save_and_index_file(file_bytes, file.filename, user_id=user_id)
+        success = save_and_index_file(file_bytes, file.filename, user_id=token_user)
         if success:
             return {"message": f"Файл {file.filename} загружен"}
         else:
@@ -142,25 +224,20 @@ async def upload_file(file: UploadFile = File(...), user_id: str = DEFAULT_USER_
 
 
 @app.get("/download/{filename:path}")
-async def download_file(filename: str):
+async def download_file(request: Request, filename: str):
+    # Allow any authenticated user to download files for now (later restrict to role folders)
     file_path = DOWNLOADS_DIR / filename
-
     if not file_path.exists():
         file_path = STORAGE_DIR / filename
 
     if not file_path.exists():
-        logger.error(f"Файл не найден: {filename}")
-        logger.error(f"Проверено: {DOWNLOADS_DIR / filename}, {STORAGE_DIR / filename}")
         raise HTTPException(status_code=404, detail=f"Файл {filename} не найден")
 
-    logger.info(f"Скачивание: {file_path}")
-
     encoded_filename = quote(filename)
-
     return FileResponse(
         path=str(file_path),
         filename=filename,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type="application/octet-stream",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
             "Access-Control-Expose-Headers": "Content-Disposition"
@@ -169,7 +246,8 @@ async def download_file(filename: str):
 
 
 @app.get("/files")
-async def list_files():
+async def list_files(request: Request):
+    token_user = request.state.user
     files = []
 
     if STORAGE_DIR.exists():
@@ -192,7 +270,7 @@ async def list_files():
                     "download_url": f"/download/{f.name}"
                 })
 
-    return {"files": files, "storage_dir": str(STORAGE_DIR), "downloads_dir": str(DOWNLOADS_DIR)}
+    return {"files": files, "storage_dir": str(STORAGE_DIR), "downloads_dir": str(DOWNLOADS_DIR), "user": token_user}
 
 
 @app.get("/debug/paths")

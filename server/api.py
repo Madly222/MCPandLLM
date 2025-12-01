@@ -86,24 +86,44 @@ def load_storage_files():
         logger.warning(f"Папка storage не найдена: {STORAGE_DIR}")
         return
 
-    existing_docs = vector_store.get_all_user_documents(DEFAULT_USER_ID, limit=100)
-    existing_files = {doc["filename"] for doc in existing_docs}
-
-    if existing_files:
-        logger.info(f"Уже загружено {len(existing_files)} файлов")
-        return
-
     supported_extensions = {'.txt', '.pdf', '.docx', '.xlsx', '.xls', '.md', '.csv', '.log'}
 
-    for file_path in STORAGE_DIR.iterdir():
-        if not file_path.is_file() or file_path.suffix.lower() not in supported_extensions:
+    # storage/user_id/*
+    for user_folder in STORAGE_DIR.iterdir():
+        if not user_folder.is_dir():
             continue
+
+        user_id = user_folder.name
+
+        # Получаем уже загруженные документы пользователя
         try:
-            result = index_file(file_path, DEFAULT_USER_ID)
-            if result.get("success"):
-                logger.info(f"{file_path.name} загружен")
+            existing_docs = vector_store.get_all_user_documents(user_id, limit=10000)
         except Exception as e:
-            logger.error(f"Ошибка при загрузке {file_path.name}: {e}")
+            logger.error(f"Ошибка чтения документов Weaviate для {user_id}: {e}")
+            continue
+
+        existing_files = {doc["filename"] for doc in existing_docs}
+
+        logger.info(f"[{user_id}] Уже загружено {len(existing_files)} файлов")
+
+        # Проход по всем файлам внутри storage/<user_id>/
+        for file_path in user_folder.iterdir():
+            if not file_path.is_file():
+                continue
+
+            if file_path.suffix.lower() not in supported_extensions:
+                continue
+
+            if file_path.name in existing_files:
+                continue  # файл уже загружен
+
+            # Загружаем новый файл
+            try:
+                result = index_file(file_path, user_id)
+                if result.get("success"):
+                    logger.info(f"[{user_id}] {file_path.name} загружен")
+            except Exception as e:
+                logger.error(f"[{user_id}] Ошибка загрузки {file_path.name}: {e}")
 
 @app.on_event("startup")
 async def startup():

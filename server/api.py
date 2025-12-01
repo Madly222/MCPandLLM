@@ -1,25 +1,21 @@
-# main.py (обновлённый)
+# main.py
 import os
 import logging
 import asyncio
-import sys
-
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import UploadFile, File
 
 from agent.agent import agent_process
 from vector_store import vector_store
 from tools.upload_tool import save_and_index_file
 from tools.chunking_tool import index_file
-
-from user.users import verify_user  # our users.py
-from user.auth import create_access_token, decode_access_token  # our auth.py
+from user.users import verify_user
+from user.auth import create_access_token, decode_access_token
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,30 +44,21 @@ DEFAULT_USER_ID = "default"
 if web_dir.exists():
     app.mount("/web", StaticFiles(directory=web_dir), name="web")
 
-
-# -------------- AUTH MIDDLEWARE --------------
+# ----------------- AUTH MIDDLEWARE -----------------
 PUBLIC_PATHS = {
     "/login",
     "/web/login.html",
     "/web/style.css",
     "/web/script.js",
     "/favicon.ico",
-    "/web/"
 }
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    # Allow public paths and static resources
     path = request.url.path
-    if path.startswith("/web/") or path in PUBLIC_PATHS:
-        # allow /web/* to be served (login page, assets)
+    if path.startswith("/web/") or path in PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/openapi.json"):
         return await call_next(request)
 
-    # Allow OpenAPI docs if you want (optional)
-    if path.startswith("/docs") or path.startswith("/openapi.json"):
-        return await call_next(request)
-
-    # Extract token
     auth_header = request.headers.get("Authorization", "")
     token = ""
     if auth_header.startswith("Bearer "):
@@ -88,11 +75,10 @@ async def auth_middleware(request: Request, call_next):
         return JSONResponse({"success": False, "message": e.detail}, status_code=e.status_code)
 
     return await call_next(request)
-# -------------- END AUTH MIDDLEWARE --------------
+# ----------------- END AUTH MIDDLEWARE -----------------
 
-
+# ----------------- STORAGE FUNCTIONS -----------------
 def load_storage_files():
-    # Keep old behavior: initial loading uses DEFAULT_USER_ID
     if not vector_store.is_connected():
         logger.warning("Weaviate не подключен.")
         return
@@ -111,9 +97,7 @@ def load_storage_files():
     supported_extensions = {'.txt', '.pdf', '.docx', '.xlsx', '.xls', '.md', '.csv', '.log'}
 
     for file_path in STORAGE_DIR.iterdir():
-        if not file_path.is_file():
-            continue
-        if file_path.suffix.lower() not in supported_extensions:
+        if not file_path.is_file() or file_path.suffix.lower() not in supported_extensions:
             continue
         try:
             result = index_file(file_path, DEFAULT_USER_ID)
@@ -122,7 +106,6 @@ def load_storage_files():
         except Exception as e:
             logger.error(f"Ошибка при загрузке {file_path.name}: {e}")
 
-
 @app.on_event("startup")
 async def startup():
     if not vector_store.is_connected():
@@ -130,10 +113,8 @@ async def startup():
             logger.info("Weaviate подключен")
         else:
             logger.warning("Не удалось подключиться к Weaviate")
-
     load_storage_files()
     asyncio.create_task(periodic_task())
-
 
 async def periodic_task():
     while True:
@@ -142,10 +123,10 @@ async def periodic_task():
             logger.info("load_storage_files выполнен")
         except Exception as e:
             logger.error(f"Ошибка periodic_task: {e}")
-
         await asyncio.sleep(300)
+# ----------------- END STORAGE FUNCTIONS -----------------
 
-
+# ----------------- AUTH ROUTES -----------------
 @app.post("/login")
 async def login(data: dict):
     username = data.get("username", "").strip()
@@ -159,30 +140,23 @@ async def login(data: dict):
 
     token = create_access_token(username, role)
     return {"success": True, "token": token, "username": username, "role": role}
+# ----------------- END AUTH ROUTES -----------------
 
-
+# ----------------- CHAT & FILE ROUTES -----------------
 @app.get("/")
 async def index(request: Request):
-    # Serve index.html only for authenticated users (middleware already set request.state.user)
     index_file_path = web_dir / "index.html"
     if index_file_path.exists():
         return FileResponse(index_file_path)
-    else:
-        raise HTTPException(status_code=404, detail="index.html не найден")
-
+    raise HTTPException(status_code=404, detail="index.html не найден")
 
 @app.post("/query")
 async def query(request: Request):
-    try:
-        data = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Неверный формат JSON")
-
+    data = await request.json()
     prompt = data.get("prompt", "").strip()
     if not prompt:
         return {"response": "Пустой запрос"}
 
-    # Ensure user can't impersonate others
     token_user = request.state.user
     body_user = data.get("user_id", token_user)
     if body_user != token_user:
@@ -197,39 +171,26 @@ async def query(request: Request):
         logger.exception("Ошибка обработки")
         return {"response": f"Ошибка: {e}"}
 
-
 @app.post("/upload")
 async def upload_file(request: Request, file: UploadFile = File(...), user_id: str = None):
-    # user_id optional in form: must match token user
     token_user = request.state.user
-
-    # read form field user_id if provided
     if not user_id:
-        # attempt to get 'user_id' from form data manually (some clients)
         form = await request.form()
         user_id = form.get("user_id") or token_user
-
     if user_id != token_user:
         raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
 
-    try:
-        file_bytes = await file.read()
-        success = save_and_index_file(file_bytes, file.filename, user_id=token_user)
-        if success:
-            return {"message": f"Файл {file.filename} загружен"}
-        else:
-            raise HTTPException(status_code=500, detail="Ошибка сохранения")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+    file_bytes = await file.read()
+    success = save_and_index_file(file_bytes, file.filename, user_id=token_user)
+    if success:
+        return {"message": f"Файл {file.filename} загружен"}
+    raise HTTPException(status_code=500, detail="Ошибка сохранения")
 
 @app.get("/download/{filename:path}")
 async def download_file(request: Request, filename: str):
-    # Allow any authenticated user to download files for now (later restrict to role folders)
     file_path = DOWNLOADS_DIR / filename
     if not file_path.exists():
         file_path = STORAGE_DIR / filename
-
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"Файл {filename} не найден")
 
@@ -243,7 +204,6 @@ async def download_file(request: Request, filename: str):
             "Access-Control-Expose-Headers": "Content-Disposition"
         }
     )
-
 
 @app.get("/files")
 async def list_files(request: Request):
@@ -271,20 +231,6 @@ async def list_files(request: Request):
                 })
 
     return {"files": files, "storage_dir": str(STORAGE_DIR), "downloads_dir": str(DOWNLOADS_DIR), "user": token_user}
-
-
-@app.get("/debug/paths")
-async def debug_paths():
-    return {
-        "base_dir": str(BASE_DIR),
-        "storage_dir": str(STORAGE_DIR),
-        "downloads_dir": str(DOWNLOADS_DIR),
-        "storage_exists": STORAGE_DIR.exists(),
-        "downloads_exists": DOWNLOADS_DIR.exists(),
-        "storage_files": [f.name for f in STORAGE_DIR.iterdir()] if STORAGE_DIR.exists() else [],
-        "downloads_files": [f.name for f in DOWNLOADS_DIR.iterdir()] if DOWNLOADS_DIR.exists() else [],
-    }
-
 
 @app.get("/debug/all-docs")
 async def debug_all_docs(user_id: str = DEFAULT_USER_ID):

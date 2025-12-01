@@ -53,9 +53,10 @@ if __name__ == "__main__":
         print("Password cannot be empty.")
         exit(1)
 
-    role = input("Enter role (admin / technic / user): ").strip().lower()
+    role = input("Enter role (admin / technic / contabil): ").strip().lower()
     if not role:
-        role = "user"
+        print("User type")
+        exit(1)
 
     ok, msg = create_user(username, password, role)
 

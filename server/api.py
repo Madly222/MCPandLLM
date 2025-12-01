@@ -18,8 +18,8 @@ from vector_store import vector_store
 from tools.upload_tool import save_and_index_file
 from tools.chunking_tool import index_file
 
-from users import verify_user  # our users.py
-from auth import create_access_token, decode_access_token  # our auth.py
+from user.users import verify_user  # our users.py
+from user.auth import create_access_token, decode_access_token  # our auth.py
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

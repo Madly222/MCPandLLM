@@ -45,7 +45,6 @@ DEFAULT_USER_ID = "default"
 if web_dir.exists():
     app.mount("/web", StaticFiles(directory=web_dir), name="web")
 
-# ----------------- AUTH MIDDLEWARE -----------------
 PUBLIC_PATHS = {
     "/login",
     "/web/login.html",
@@ -77,9 +76,7 @@ async def auth_middleware(request: Request, call_next):
         return RedirectResponse(url="/web/login.html")
 
     return await call_next(request)
-# ----------------- END AUTH MIDDLEWARE -----------------
 
-# ----------------- STORAGE FUNCTIONS -----------------
 def load_storage_files():
     if not vector_store.is_connected():
         logger.warning("Weaviate не подключен.")
@@ -126,9 +123,7 @@ async def periodic_task():
         except Exception as e:
             logger.error(f"Ошибка periodic_task: {e}")
         await asyncio.sleep(300)
-# ----------------- END STORAGE FUNCTIONS -----------------
 
-# ----------------- AUTH ROUTES -----------------
 @app.post("/login")
 async def login(data: dict):
     username = data.get("username", "").strip()
@@ -153,10 +148,6 @@ async def login(data: dict):
     )
     return response
 
-
-# ----------------- END AUTH ROUTES -----------------
-
-# ----------------- CHAT & FILE ROUTES -----------------
 @app.get("/")
 async def index(request: Request):
     index_file_path = web_dir / "index.html"
@@ -171,15 +162,12 @@ async def query(request: Request):
     if not prompt:
         return {"response": "Пустой запрос"}
 
-    token_user = request.state.user
-    body_user = data.get("user_id", token_user)
-    if body_user != token_user:
-        return {"response": "User mismatch (invalid user_id)"}
+    user_id = request.state.user  # Всегда из токена
 
-    logger.info(f"Запрос от {token_user}: {prompt}")
+    logger.info(f"Запрос от {user_id}: {prompt}")
 
     try:
-        response = await agent_process(prompt, token_user)
+        response = await agent_process(prompt, user_id)
         return {"response": response}
     except Exception as e:
         logger.exception("Ошибка обработки")

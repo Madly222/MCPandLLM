@@ -4,14 +4,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE_FILES_DIR = Path(os.getenv("FILES_DIR", Path.cwd()))
+BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_FILES_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
+
 if not BASE_FILES_DIR.exists():
-    raise RuntimeError(f"Папка с файлами не найдена: {BASE_FILES_DIR}")
+    BASE_FILES_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def read_file(filepath: Path) -> str:
+def read_file(filepath) -> str:
     if isinstance(filepath, str):
-        filepath = BASE_FILES_DIR / filepath
+        filepath = Path(filepath)
+        if not filepath.is_absolute():
+            filepath = BASE_FILES_DIR / filepath
 
     if not filepath.exists():
         return f"Файл {filepath} не найден."

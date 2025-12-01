@@ -75,6 +75,39 @@ async def auth_middleware(request: Request, call_next):
         return JSONResponse({"success": False, "message": e.detail}, status_code=e.status_code)
 
     return await call_next(request)
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # Разрешаем только публичные пути
+    if path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    # Разрешаем OpenAPI
+    if path.startswith("/docs") or path.startswith("/openapi.json"):
+        return await call_next(request)
+
+    # Проверка токена
+    auth_header = request.headers.get("Authorization", "")
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1]
+
+    if not token:
+        # Перенаправление на login.html
+        return FileResponse(web_dir / "login.html")
+
+    try:
+        data = decode_access_token(token)
+        request.state.user = data["username"]
+        request.state.role = data["role"]
+    except HTTPException as e:
+        return FileResponse(web_dir / "login.html")
+
+    return await call_next(request)
+
+
 # ----------------- END AUTH MIDDLEWARE -----------------
 
 # ----------------- STORAGE FUNCTIONS -----------------

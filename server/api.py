@@ -56,58 +56,26 @@ PUBLIC_PATHS = {
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/web/") or path in PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/openapi.json"):
+
+    # Публичные пути
+    if path in PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/openapi.json"):
         return await call_next(request)
 
-    auth_header = request.headers.get("Authorization", "")
-    token = ""
-    if auth_header.startswith("Bearer "):
-        token = auth_header.split(" ", 1)[1]
+    # Берём токен из куки
+    token = request.cookies.get("token", "")
 
     if not token:
-        return JSONResponse({"success": False, "message": "Authorization required"}, status_code=401)
+        # Редирект на login
+        return RedirectResponse(url="/web/login.html")
 
     try:
         data = decode_access_token(token)
         request.state.user = data["username"]
         request.state.role = data["role"]
-    except HTTPException as e:
-        return JSONResponse({"success": False, "message": e.detail}, status_code=e.status_code)
+    except HTTPException:
+        return RedirectResponse(url="/web/login.html")
 
     return await call_next(request)
-
-@app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    path = request.url.path
-
-    # Разрешаем только публичные пути
-    if path in PUBLIC_PATHS:
-        return await call_next(request)
-
-    # Разрешаем OpenAPI
-    if path.startswith("/docs") or path.startswith("/openapi.json"):
-        return await call_next(request)
-
-    # Проверка токена
-    auth_header = request.headers.get("Authorization", "")
-    token = ""
-    if auth_header.startswith("Bearer "):
-        token = auth_header.split(" ", 1)[1]
-
-    if not token:
-        # Перенаправление на login.html
-        return FileResponse(web_dir / "login.html")
-
-    try:
-        data = decode_access_token(token)
-        request.state.user = data["username"]
-        request.state.role = data["role"]
-    except HTTPException as e:
-        return FileResponse(web_dir / "login.html")
-
-    return await call_next(request)
-
-
 # ----------------- END AUTH MIDDLEWARE -----------------
 
 # ----------------- STORAGE FUNCTIONS -----------------
@@ -172,7 +140,19 @@ async def login(data: dict):
         return JSONResponse({"success": False, "message": "Invalid credentials"}, status_code=401)
 
     token = create_access_token(username, role)
-    return {"success": True, "token": token, "username": username, "role": role}
+    response = JSONResponse({"success": True, "username": username, "role": role})
+
+    # безопасная кука
+    response.set_cookie(
+        key="token",
+        value=token,
+        httponly=True,  # недоступно JS, безопаснее
+        samesite="lax",
+        max_age=3600
+    )
+    return response
+
+
 # ----------------- END AUTH ROUTES -----------------
 
 # ----------------- CHAT & FILE ROUTES -----------------

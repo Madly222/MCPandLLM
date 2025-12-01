@@ -30,7 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 web_dir = BASE_DIR / "web"
 
 STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))

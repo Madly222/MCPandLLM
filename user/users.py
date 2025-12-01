@@ -41,3 +41,26 @@ def verify_user(username: str, password: str):
         return False, None
     ok = verify_password(password, entry["password_hash"])
     return ok, entry["role"] if ok else None
+
+if __name__ == "__main__":
+    username = input("Enter username: ").strip()
+    if not username:
+        print("Username cannot be empty.")
+        exit(1)
+
+    password = input("Enter password: ").strip()
+    if not password:
+        print("Password cannot be empty.")
+        exit(1)
+
+    role = input("Enter role (admin / technic / user): ").strip().lower()
+    if not role:
+        role = "user"
+
+    ok, msg = create_user(username, password, role)
+
+    print(f"\nResult: {msg}")
+    if ok:
+        print(f"User '{username}' created with role '{role}'")
+    else:
+        print("Failed to create user.")

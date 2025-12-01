@@ -1,22 +1,88 @@
-// В начале файла, при загрузке страницы, проверим токен
 document.addEventListener('DOMContentLoaded', () => {
     const token = localStorage.getItem("token");
-    // allow access to login page itself without redirect
+
+    // Разрешаем доступ к странице логина без токена
     if (!token && !window.location.pathname.endsWith("/web/login.html")) {
         window.location.href = "/web/login.html";
         return;
     }
 
-const input = document.getElementById('prompt');
-const sendBtn = document.getElementById('sendBtn');
-const chatContainer = document.getElementById('chat-container');
-const uploadBtn = document.getElementById('uploadBtn');
-const fileInput = document.getElementById('fileInput');
+    const input = document.getElementById('prompt');
+    const sendBtn = document.getElementById('sendBtn');
+    const chatContainer = document.getElementById('chat-container');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileInput = document.getElementById('fileInput');
 
-// Чат
-sendBtn.addEventListener('click', sendPrompt);
-input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendPrompt();
+    // Отправка сообщений
+    sendBtn.addEventListener('click', sendPrompt);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendPrompt();
+    });
+
+    async function sendPrompt() {
+        const message = input.value.trim();
+        if (!message) return;
+
+        appendChat('Вы', message);
+        input.value = '';
+
+        try {
+            const res = await fetch('/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ prompt: message })
+            });
+
+            const data = await res.json();
+            appendChat('Помощник', data.response || 'Ошибка при получении ответа');
+        } catch (err) {
+            appendChat('Система', 'Ошибка при соединении с сервером');
+            console.error(err);
+        }
+    }
+
+    function appendChat(role, text) {
+        const msgDiv = document.createElement('div');
+        if (role === 'Вы') msgDiv.className = 'message user-msg';
+        else if (role === 'Помощник') msgDiv.className = 'message assistant-msg';
+        else msgDiv.className = 'message';
+
+        msgDiv.innerText = `${role}:\n${text}`;
+        chatContainer.appendChild(msgDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // Загрузка файлов
+    uploadBtn.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', async () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await fetch('/upload', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            });
+
+            const data = await res.json();
+            alert(data.message || 'Файл загружен');
+        } catch (err) {
+            alert('Ошибка при загрузке файла');
+            console.error(err);
+        }
+
+        fileInput.value = '';
+    });
 });
 
 async function sendPrompt() {

@@ -37,8 +37,16 @@ def _cleanup_old_downloads():
                     logger.error(f"Ошибка удаления {filepath.name}: {e}")
 
 
-def _find_source_file(filename: str) -> Optional[Path]:
-    for directory in [STORAGE_DIR, DOWNLOADS_DIR]:
+def _find_source_file(filename: str, role: Optional[str] = None) -> Optional[Path]:
+    if role:
+        role_dir = STORAGE_DIR / role
+        if role_dir.exists():
+            path = role_dir / filename
+            if path.exists():
+                logger.info(f"Найден файл в папке роли: {path}")
+                return path
+
+    for directory in [DOWNLOADS_DIR, STORAGE_DIR]:
         path = directory / filename
         if path.exists():
             logger.info(f"Найден файл: {path}")
@@ -46,7 +54,15 @@ def _find_source_file(filename: str) -> Optional[Path]:
 
     filename_clean = filename.lower().replace(' ', '').replace('(', '').replace(')', '')
 
-    for directory in [STORAGE_DIR, DOWNLOADS_DIR]:
+    search_dirs = [DOWNLOADS_DIR]
+    if role:
+        search_dirs.append(STORAGE_DIR / role)
+    else:
+        for role_dir in STORAGE_DIR.iterdir():
+            if role_dir.is_dir():
+                search_dirs.append(role_dir)
+
+    for directory in search_dirs:
         if not directory.exists():
             continue
         for filepath in directory.iterdir():
@@ -61,10 +77,6 @@ def _find_source_file(filename: str) -> Optional[Path]:
                     return filepath
 
     logger.error(f"Файл не найден: {filename}")
-    logger.error(f"STORAGE_DIR: {STORAGE_DIR}, существует: {STORAGE_DIR.exists()}")
-    if STORAGE_DIR.exists():
-        logger.error(f"Файлы в storage: {[f.name for f in STORAGE_DIR.iterdir()]}")
-
     return None
 
 
@@ -88,7 +100,8 @@ def _copy_cell_style(source_cell, target_cell):
 def edit_excel(
         filename: str,
         operations: List[Dict[str, Any]],
-        sheet_name: Optional[str] = None
+        sheet_name: Optional[str] = None,
+        role: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Редактирует Excel файл и возвращает ссылку на скачивание.
@@ -111,7 +124,7 @@ def edit_excel(
     """
     _cleanup_old_downloads()
 
-    source_path = _find_source_file(filename)
+    source_path = _find_source_file(filename, role)
     if not source_path:
         return {
             "success": False,
@@ -134,7 +147,7 @@ def edit_excel(
         ops_applied = 0
 
         for op in operations:
-            action = op.get("action", "").lower()
+            action = op.get("action", "")
 
             if action == "add_row":
                 data = op.get("data", [])
@@ -143,14 +156,15 @@ def edit_excel(
                 ws.insert_rows(after_row + 1)
                 new_row = after_row + 1
 
-                for col_idx, value in enumerate(data, start=1):
-                    cell = ws.cell(row=new_row, column=col_idx, value=value)
+                for i, value in enumerate(data, 1):
+                    ws.cell(row=new_row, column=i, value=value)
                     if after_row > 0:
-                        source_cell = ws.cell(row=after_row, column=col_idx)
-                        _copy_cell_style(source_cell, cell)
+                        source_cell = ws.cell(row=after_row, column=i)
+                        target_cell = ws.cell(row=new_row, column=i)
+                        _copy_cell_style(source_cell, target_cell)
 
                 ops_applied += 1
-                logger.info(f"Добавлена строка {new_row}: {data}")
+                logger.info(f"Добавлена строка после {after_row}: {data}")
 
             elif action == "edit_cell":
                 row = op.get("row")
@@ -217,75 +231,40 @@ def edit_excel(
         }
 
     except Exception as e:
-        logger.error(f"Ошибка редактирования {filename}: {e}")
+        logger.error(f"Ошибка редактирования Excel: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e)
         }
 
 
-def add_row_to_excel(
-        filename: str,
-        row_data: List[Any],
-        after_row: Optional[int] = None,
-        sheet_name: Optional[str] = None
-) -> Dict[str, Any]:
-    """Упрощённая функция добавления строки"""
-    op = {"action": "add_row", "data": row_data}
-    if after_row:
-        op["after_row"] = after_row
-    return edit_excel(filename, [op], sheet_name)
-
-
-def edit_cell_in_excel(
-        filename: str,
-        row: int,
-        col: Any,
-        value: Any,
-        sheet_name: Optional[str] = None
-) -> Dict[str, Any]:
-    """Упрощённая функция изменения ячейки"""
-    return edit_excel(filename, [{"action": "edit_cell", "row": row, "col": col, "value": value}], sheet_name)
-
-
-def delete_row_from_excel(
-        filename: str,
-        row: int,
-        sheet_name: Optional[str] = None
-) -> Dict[str, Any]:
-    """Упрощённая функция удаления строки"""
-    return edit_excel(filename, [{"action": "delete_row", "row": row}], sheet_name)
-
-
-def get_excel_preview(filename: str, rows: int = 10, sheet_name: Optional[str] = None) -> Dict[str, Any]:
-    """Получить превью таблицы для LLM"""
-    source_path = _find_source_file(filename)
+def get_excel_preview(filename: str, max_rows: int = 20, role: Optional[str] = None) -> Dict[str, Any]:
+    source_path = _find_source_file(filename, role)
     if not source_path:
-        return {"success": False, "error": f"Файл {filename} не найден"}
+        return {"error": f"Файл {filename} не найден"}
 
     try:
         wb = load_workbook(source_path, data_only=True)
+        ws = wb.active
 
-        if sheet_name:
-            ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
-        else:
-            ws = wb.active
-
-        data = []
-        for row_idx, row in enumerate(ws.iter_rows(max_row=rows + 1, values_only=True), start=1):
-            row_data = [str(cell) if cell is not None else "" for cell in row]
-            data.append({"row": row_idx, "values": row_data})
+        rows = []
+        for i, row in enumerate(ws.iter_rows(values_only=True), 1):
+            if i > max_rows:
+                break
+            rows.append({
+                "row_num": i,
+                "cells": [str(cell) if cell is not None else "" for cell in row]
+            })
 
         wb.close()
 
         return {
-            "success": True,
             "filename": filename,
             "sheet": ws.title,
+            "rows": rows,
             "total_rows": ws.max_row,
-            "total_cols": ws.max_column,
-            "preview": data
+            "total_cols": ws.max_column
         }
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"error": str(e)}

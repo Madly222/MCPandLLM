@@ -1,12 +1,17 @@
 import logging
+import os
 import re
+from pathlib import Path
 from typing import List, Dict, Optional
 
 from vector_store import vector_store
-from tools.utils import BASE_FILES_DIR, read_file
+from tools.utils import read_file
 from tools.excel_tool import read_excel
 
 logger = logging.getLogger(__name__)
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
 
 KEYWORD_STOP_WORDS = {
     'найди', 'поиск', 'покажи', 'открой', 'файл', 'файлы', 'документ',
@@ -21,6 +26,10 @@ FULL_CONTEXT_PATTERNS = [
     r'(сколько\s+всего|общ\w+\s+колич|total|count\s+all)',
     r'(анализ|статистик|отчёт|report)',
 ]
+
+
+def get_role_files_dir(role: str) -> Path:
+    return STORAGE_DIR / role
 
 
 def needs_full_context(query: str) -> bool:
@@ -42,13 +51,17 @@ def extract_filename_pattern(query: str) -> str:
     return tokens[0]
 
 
-def keyword_search_in_files(query: str, top_n: int = 5, context_chars: int = 300) -> List[Dict]:
+def keyword_search_in_files(query: str, role: str, top_n: int = 5, context_chars: int = 300) -> List[Dict]:
     hits = []
     query_lower = (query or "").lower().strip()
     if not query_lower:
         return hits
 
-    for filepath in BASE_FILES_DIR.iterdir():
+    role_dir = get_role_files_dir(role)
+    if not role_dir.exists():
+        return hits
+
+    for filepath in role_dir.iterdir():
         if not filepath.is_file():
             continue
 
@@ -95,7 +108,7 @@ def keyword_search_in_files(query: str, top_n: int = 5, context_chars: int = 300
     return hits
 
 
-def filename_search(query: str, user_id: str = "default", limit: int = 20) -> List[Dict]:
+def filename_search(query: str, role: str, limit: int = 20) -> List[Dict]:
     pattern = extract_filename_pattern(query)
     if not pattern:
         return []
@@ -104,7 +117,7 @@ def filename_search(query: str, user_id: str = "default", limit: int = 20) -> Li
         return []
 
     try:
-        results = vector_store.search_by_filename(pattern, user_id, limit=limit) or []
+        results = vector_store.search_by_filename(pattern, role, limit=limit) or []
         for r in results:
             r["match_type"] = "filename"
         return results
@@ -113,12 +126,12 @@ def filename_search(query: str, user_id: str = "default", limit: int = 20) -> Li
         return []
 
 
-def semantic_search(query: str, user_id: str = "default", limit: int = 10) -> List[Dict]:
+def semantic_search(query: str, role: str, limit: int = 10) -> List[Dict]:
     if not vector_store.is_connected():
         return []
 
     try:
-        results = vector_store.search_documents(query, user_id, limit=limit) or []
+        results = vector_store.search_documents(query, role, limit=limit) or []
         for r in results:
             r["match_type"] = "semantic"
         return results
@@ -127,12 +140,12 @@ def semantic_search(query: str, user_id: str = "default", limit: int = 10) -> Li
         return []
 
 
-def full_document_search(query: str, user_id: str = "default", limit: int = 5) -> List[Dict]:
+def full_document_search(query: str, role: str, limit: int = 5) -> List[Dict]:
     if not vector_store.is_connected():
         return []
 
     try:
-        results = vector_store.search_full_documents(query, user_id, limit=limit) or []
+        results = vector_store.search_full_documents(query, role, limit=limit) or []
         for r in results:
             r["match_type"] = "full_document"
         return results
@@ -141,23 +154,23 @@ def full_document_search(query: str, user_id: str = "default", limit: int = 5) -
         return []
 
 
-def smart_search(query: str, user_id: str = "default", limit: int = 10) -> List[Dict]:
+def smart_search(query: str, role: str, limit: int = 10) -> List[Dict]:
     results = []
     seen = set()
 
     if not vector_store.is_connected():
-        return keyword_search_in_files(query, top_n=limit)
+        return keyword_search_in_files(query, role, top_n=limit)
 
     pattern = extract_filename_pattern(query)
     if pattern:
-        name_hits = filename_search(query, user_id, limit=limit * 2)
+        name_hits = filename_search(query, role, limit=limit * 2)
         for doc in name_hits:
             key = doc.get("filename")
             if key and key not in seen:
                 results.append(doc)
                 seen.add(key)
 
-    semantic_results = semantic_search(query, user_id, limit=limit)
+    semantic_results = semantic_search(query, role, limit=limit)
     for doc in semantic_results:
         key = doc.get("filename")
         if key and key not in seen:
@@ -165,7 +178,7 @@ def smart_search(query: str, user_id: str = "default", limit: int = 10) -> List[
             seen.add(key)
 
     if len(results) < 3:
-        keyword_results = keyword_search_in_files(query, top_n=limit)
+        keyword_results = keyword_search_in_files(query, role, top_n=limit)
         for doc in keyword_results:
             key = doc.get("filename")
             if key and key not in seen:
@@ -178,15 +191,15 @@ def smart_search(query: str, user_id: str = "default", limit: int = 10) -> List[
     return results[:limit]
 
 
-def get_full_document_content(filename: str, user_id: str = "default") -> Optional[Dict]:
+def get_full_document_content(filename: str, role: str) -> Optional[Dict]:
     if not vector_store.is_connected():
         return None
 
-    doc = vector_store.get_full_document(filename, user_id)
+    doc = vector_store.get_full_document(filename, role)
     if doc:
         return doc
 
-    filepath = BASE_FILES_DIR / filename
+    filepath = get_role_files_dir(role) / filename
     if filepath.exists():
         suffix = filepath.suffix.lower()
         is_table = suffix in {'.xlsx', '.xls', '.csv'}
@@ -205,16 +218,16 @@ def get_full_document_content(filename: str, user_id: str = "default") -> Option
     return None
 
 
-def get_rag_context(query: str, user_id: str = "default", top_n: int = 10,
+def get_rag_context(query: str, role: str, top_n: int = 10,
                     max_context_chars: int = 30000) -> str:
     use_full = needs_full_context(query)
 
     if use_full:
-        results = full_document_search(query, user_id, limit=min(top_n, 5))
+        results = full_document_search(query, role, limit=min(top_n, 5))
         if not results:
-            results = smart_search(query, user_id, limit=top_n)
+            results = smart_search(query, role, limit=top_n)
     else:
-        results = smart_search(query, user_id, limit=top_n)
+        results = smart_search(query, role, limit=top_n)
 
     if not results:
         return ""
@@ -261,7 +274,7 @@ def get_rag_context(query: str, user_id: str = "default", top_n: int = 10,
     return "\n".join(parts)
 
 
-def get_rag_context_for_summary(query: str, user_id: str = "default",
+def get_rag_context_for_summary(query: str, role: str,
                                   filenames: Optional[List[str]] = None,
                                   max_chars: int = 50000) -> str:
     parts = ["# ПОЛНЫЙ КОНТЕКСТ ДЛЯ АНАЛИЗА\n"]
@@ -271,7 +284,7 @@ def get_rag_context_for_summary(query: str, user_id: str = "default",
         for fname in filenames:
             if total_chars >= max_chars:
                 break
-            doc = get_full_document_content(fname, user_id)
+            doc = get_full_document_content(fname, role)
             if doc:
                 content = doc.get("content", "")
                 remaining = max_chars - total_chars
@@ -282,7 +295,7 @@ def get_rag_context_for_summary(query: str, user_id: str = "default",
                 parts.append(f"\n## [{doc_type}] {fname}\n\n{content}\n")
                 total_chars += len(content)
     else:
-        results = full_document_search(query, user_id, limit=10)
+        results = full_document_search(query, role, limit=10)
         for doc in results:
             if total_chars >= max_chars:
                 break
@@ -299,14 +312,17 @@ def get_rag_context_for_summary(query: str, user_id: str = "default",
     return "\n".join(parts)
 
 
-def list_available_documents(user_id: str = "default") -> str:
+def list_available_documents(role: str) -> str:
     if not vector_store.is_connected():
-        files = [f.name for f in BASE_FILES_DIR.iterdir() if f.is_file()]
+        role_dir = get_role_files_dir(role)
+        if not role_dir.exists():
+            return "Нет доступных документов."
+        files = [f.name for f in role_dir.iterdir() if f.is_file()]
         if not files:
             return "Нет доступных документов."
         return "Доступные файлы:\n" + "\n".join(f"- {f}" for f in files)
 
-    docs = vector_store.get_all_full_documents(user_id)
+    docs = vector_store.get_all_full_documents(role)
     if not docs:
         return "Нет проиндексированных документов."
 
@@ -325,8 +341,8 @@ def list_available_documents(user_id: str = "default") -> str:
     return "\n".join(lines)
 
 
-def search_documents(query: str, user_id: str = "default", top_n: int = 5) -> str:
-    results = smart_search(query, user_id, limit=top_n)
+def search_documents(query: str, role: str, top_n: int = 5) -> str:
+    results = smart_search(query, role, limit=top_n)
     if not results:
         return "Ничего не найдено."
 
@@ -347,11 +363,14 @@ def search_documents(query: str, user_id: str = "default", top_n: int = 5) -> st
 
     return "\n".join(lines)
 
-def perform_search(query: str, user_id: str = "default", top_n: int = 5) -> str:
-    return search_documents(query, user_id, top_n)
 
-def get_raw_results(query: str, user_id: str = "default", top_n: int = 5) -> List[Dict]:
-    return smart_search(query, user_id, limit=top_n)
+def perform_search(query: str, role: str, top_n: int = 5) -> str:
+    return search_documents(query, role, top_n)
 
-def hybrid_search(query: str, user_id: str = "default", top_n: int = 5) -> List[Dict]:
-    return smart_search(query, user_id, limit=top_n)
+
+def get_raw_results(query: str, role: str, top_n: int = 5) -> List[Dict]:
+    return smart_search(query, role, limit=top_n)
+
+
+def hybrid_search(query: str, role: str, top_n: int = 5) -> List[Dict]:
+    return smart_search(query, role, limit=top_n)

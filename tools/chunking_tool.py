@@ -1,3 +1,4 @@
+import os
 import sys
 import logging
 from pathlib import Path
@@ -9,14 +10,22 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from vector_store import vector_store
-from tools.utils import BASE_FILES_DIR, read_file
+from tools.utils import read_file
 from tools.excel_tool import read_excel_structured
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
+
 CHUNK_MAX_CHARS = 3000
 CHUNK_OVERLAP_CHARS = 300
+
+
+def get_role_files_dir(role: str) -> Path:
+    return STORAGE_DIR / role
+
 
 def chunk_text_semantic(text: str, max_chars: int = CHUNK_MAX_CHARS, overlap: int = CHUNK_OVERLAP_CHARS) -> List[Dict]:
     if len(text) <= max_chars:
@@ -85,8 +94,8 @@ def is_error_response(content: str) -> bool:
     return content.strip().startswith(("Ошибка", "File error", "Error", "Файл"))
 
 
-def index_excel_file(filepath: Path, user_id: str) -> Dict:
-    result = read_excel_structured(filepath.name)
+def index_excel_file(filepath: Path, role: str) -> Dict:
+    result = read_excel_structured(filepath, role=role)
 
     if "error" in result:
         return {"success": False, "message": result["error"]}
@@ -103,7 +112,7 @@ def index_excel_file(filepath: Path, user_id: str) -> Dict:
         content=content,
         filename=filepath.name,
         filetype=filepath.suffix[1:],
-        user_id=user_id,
+        user_id=role,
         metadata={
             "is_table": True,
             "summary": summary,
@@ -116,14 +125,14 @@ def index_excel_file(filepath: Path, user_id: str) -> Dict:
     if full_result.get("skipped"):
         return {"success": True, "chunks": 0, "skipped": True}
 
-    vector_store._delete_chunks(filepath.name, user_id)
+    vector_store._delete_chunks(filepath.name, role)
 
     if len(content) <= CHUNK_MAX_CHARS:
         chunk_result = vector_store.add_document(
             content=content,
             filename=filepath.name,
             filetype=filepath.suffix[1:],
-            user_id=user_id,
+            user_id=role,
             metadata={
                 "chunk_index": 0,
                 "total_chunks": 1,
@@ -163,7 +172,7 @@ def index_excel_file(filepath: Path, user_id: str) -> Dict:
             content=chunk_content,
             filename=filepath.name,
             filetype=filepath.suffix[1:],
-            user_id=user_id,
+            user_id=role,
             metadata=chunk_meta
         )
 
@@ -174,7 +183,7 @@ def index_excel_file(filepath: Path, user_id: str) -> Dict:
     return {"success": True, "chunks": success_chunks}
 
 
-def index_text_file(filepath: Path, user_id: str) -> Dict:
+def index_text_file(filepath: Path, role: str) -> Dict:
     content = read_file(filepath)
 
     if is_error_response(content):
@@ -188,7 +197,7 @@ def index_text_file(filepath: Path, user_id: str) -> Dict:
         content=content,
         filename=filepath.name,
         filetype=filepath.suffix[1:],
-        user_id=user_id,
+        user_id=role,
         metadata={
             "is_table": False,
             "summary": summary,
@@ -199,14 +208,14 @@ def index_text_file(filepath: Path, user_id: str) -> Dict:
     if full_result.get("skipped"):
         return {"success": True, "chunks": 0, "skipped": True}
 
-    vector_store._delete_chunks(filepath.name, user_id)
+    vector_store._delete_chunks(filepath.name, role)
 
     if len(content) <= CHUNK_MAX_CHARS:
         result = vector_store.add_document(
             content=content,
             filename=filepath.name,
             filetype=filepath.suffix[1:],
-            user_id=user_id,
+            user_id=role,
             metadata={
                 "chunk_index": 0,
                 "total_chunks": 1,
@@ -242,7 +251,7 @@ def index_text_file(filepath: Path, user_id: str) -> Dict:
             content=chunk_content,
             filename=filepath.name,
             filetype=filepath.suffix[1:],
-            user_id=user_id,
+            user_id=role,
             metadata=chunk_meta
         )
 
@@ -253,33 +262,38 @@ def index_text_file(filepath: Path, user_id: str) -> Dict:
     return {"success": True, "chunks": success_chunks}
 
 
-def index_file(filepath: Path, user_id: str = "default") -> Dict:
+def index_file(filepath: Path, role: str = "default") -> Dict:
     if not filepath.exists():
         return {"success": False, "message": "Файл не найден"}
 
     suffix = filepath.suffix.lower()
 
     if suffix in (".xlsx", ".xls", ".csv"):
-        return index_excel_file(filepath, user_id)
+        return index_excel_file(filepath, role)
     else:
-        return index_text_file(filepath, user_id)
+        return index_text_file(filepath, role)
 
 
-def index_all_files(user_id: str = "default"):
+def index_all_files(role: str = "default"):
     if not vector_store.is_connected():
         if not vector_store.connect():
             logger.error("Не удалось подключиться к Weaviate")
             return
 
+    role_dir = get_role_files_dir(role)
+    if not role_dir.exists():
+        logger.warning(f"Папка роли не найдена: {role_dir}")
+        return
+
     supported = {".txt", ".pdf", ".docx", ".xlsx", ".xls", ".md", ".csv", ".log"}
 
     files = [
-        f for f in BASE_FILES_DIR.iterdir()
+        f for f in role_dir.iterdir()
         if f.is_file() and f.suffix.lower() in supported
     ]
 
     if not files:
-        logger.warning("Нет файлов для индексации")
+        logger.warning(f"Нет файлов для индексации в {role_dir}")
         return
 
     success = 0
@@ -287,7 +301,7 @@ def index_all_files(user_id: str = "default"):
     errors = 0
 
     for f in files:
-        result = index_file(f, user_id)
+        result = index_file(f, role)
         if result.get("skipped"):
             skipped += 1
         elif result.get("success"):
@@ -298,17 +312,17 @@ def index_all_files(user_id: str = "default"):
     stats = vector_store.get_stats()
 
     logger.info("=" * 60)
-    logger.info(f"Новых: {success} | Пропущено: {skipped} | Ошибки: {errors}")
+    logger.info(f"[{role}] Новых: {success} | Пропущено: {skipped} | Ошибки: {errors}")
     logger.info(f"Статистика: {stats}")
     logger.info("=" * 60)
 
 
-def reindex_all(user_id: str = "default"):
-    logger.info("Очистка старых данных...")
-    vector_store.clear_user_data(user_id)
+def reindex_all(role: str = "default"):
+    logger.info(f"Очистка старых данных для роли {role}...")
+    vector_store.clear_user_data(role)
 
     logger.info("Переиндексация...")
-    index_all_files(user_id)
+    index_all_files(role)
 
     logger.info("Готово")
 
@@ -318,6 +332,6 @@ if __name__ == "__main__":
         print("Не удалось подключиться")
         sys.exit(1)
 
-    uid = sys.argv[1] if len(sys.argv) > 1 else "default"
-    reindex_all(uid)
+    role = sys.argv[1] if len(sys.argv) > 1 else "default"
+    reindex_all(role)
     vector_store.disconnect()

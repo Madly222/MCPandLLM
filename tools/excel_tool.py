@@ -1,7 +1,32 @@
-from typing import Optional, Dict, List, Tuple
+import os
+from typing import Optional, Dict, List, Tuple, Union
 from pathlib import Path
 from openpyxl import load_workbook, Workbook
-from tools.utils import BASE_FILES_DIR
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
+
+
+def _resolve_path(filename: Union[str, Path], role: Optional[str] = None) -> Path:
+    if isinstance(filename, Path):
+        return filename
+
+    if role:
+        path = STORAGE_DIR / role / filename
+        if path.exists():
+            return path
+
+    path = STORAGE_DIR / filename
+    if path.exists():
+        return path
+
+    for role_dir in STORAGE_DIR.iterdir():
+        if role_dir.is_dir():
+            path = role_dir / filename
+            if path.exists():
+                return path
+
+    return STORAGE_DIR / filename
 
 
 def _format_cell(value) -> str:
@@ -116,15 +141,17 @@ def _generate_summary(filename: str, sheets_info: List[Dict]) -> str:
     return ". ".join(parts)
 
 
-def read_excel(filename: str, with_row_numbers: bool = False) -> str:
-    path = BASE_FILES_DIR / filename
+def read_excel(filename: Union[str, Path], with_row_numbers: bool = False, role: Optional[str] = None) -> str:
+    path = _resolve_path(filename, role)
+
     if not path.exists():
         return f"Файл '{filename}' не найден."
 
     try:
         wb = load_workbook(path, data_only=True)
         parts = []
-        parts.append(f"# {filename}\n")
+        display_name = path.name if isinstance(filename, Path) else filename
+        parts.append(f"# {display_name}\n")
 
         for sheet in wb.worksheets:
             parts.append(f"\n## Лист: {sheet.title}\n")
@@ -174,19 +201,22 @@ def read_excel(filename: str, with_row_numbers: bool = False) -> str:
         return f"Ошибка чтения Excel: {e}"
 
 
-def read_excel_for_edit(filename: str) -> str:
-    return read_excel(filename, with_row_numbers=True)
+def read_excel_for_edit(filename: Union[str, Path], role: Optional[str] = None) -> str:
+    return read_excel(filename, with_row_numbers=True, role=role)
 
 
-def read_excel_structured(filename: str) -> Dict:
-    path = BASE_FILES_DIR / filename
+def read_excel_structured(filename: Union[str, Path], role: Optional[str] = None) -> Dict:
+    path = _resolve_path(filename, role)
+
     if not path.exists():
         return {"error": f"Файл '{filename}' не найден."}
 
     try:
         wb = load_workbook(path, data_only=True)
+        display_name = path.name if isinstance(filename, Path) else filename
+
         result = {
-            "filename": filename,
+            "filename": display_name,
             "sheets": [],
             "content": "",
             "summary": "",
@@ -195,7 +225,7 @@ def read_excel_structured(filename: str) -> Dict:
             "all_columns": []
         }
 
-        content_parts = [f"# {filename}\n"]
+        content_parts = [f"# {display_name}\n"]
         sheets_info = []
 
         for sheet in wb.worksheets:
@@ -252,7 +282,7 @@ def read_excel_structured(filename: str) -> Dict:
             })
 
         result["content"] = "\n".join(content_parts)
-        result["summary"] = _generate_summary(filename, sheets_info)
+        result["summary"] = _generate_summary(display_name, sheets_info)
         result["structure"] = str({
             "sheets": [s["name"] for s in sheets_info],
             "total_rows": result["total_rows"],
@@ -265,8 +295,9 @@ def read_excel_structured(filename: str) -> Dict:
         return {"error": f"Ошибка чтения Excel: {e}"}
 
 
-def write_excel(filename: str, sheet_name: str, data: list) -> str:
-    path = BASE_FILES_DIR / filename
+def write_excel(filename: str, sheet_name: str, data: list, role: Optional[str] = None) -> str:
+    path = _resolve_path(filename, role)
+
     if path.exists():
         wb = load_workbook(path)
     else:

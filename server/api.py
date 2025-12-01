@@ -16,6 +16,7 @@ from tools.upload_tool import save_and_index_file
 from tools.chunking_tool import index_file
 from user.users import verify_user
 from user.auth import create_access_token, decode_access_token
+from fastapi.responses import RedirectResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -1,228 +1,177 @@
-/* =========================
-   ОСНОВНОЕ
-========================= */
-
-html, body {
+body {
     margin: 0;
     padding: 0;
-    height: 100%;
-    background: #000;
-    color: #fff;
-    font-family: Arial, sans-serif;
-}
-
-body {
+    height: 100vh;
     display: flex;
     flex-direction: column;
-    overflow: hidden; /* важно */
+    background-color: #000;
+    color: #fff;
+    font-family: Arial, sans-serif;
 }
 
 h2 {
     text-align: center;
     margin: 10px 0;
+    font-size: 1.5rem;
 }
-
-/* =========================
-   ЧАТ
-========================= */
 
 #chat-container {
     flex: 1;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
     padding: 10px;
-    background: #676161;
-    border-radius: 10px;
+    overflow-y: auto;
+
+    max-height: calc(100vh - 120px);
+    width: 90%;
+    max-width: 1200px;
+    margin: 10px auto;
     box-sizing: border-box;
 
-    width: 100%;
-    max-width: 900px;
-    margin: 0 auto;
+    background-color: #676161;
+    border-radius: 8px;
+    color: #000;
 }
 
 .message {
-    padding: 10px 14px;
-    margin: 6px 0;
-    max-width: 80%;
-    border-radius: 14px;
+    padding: 8px 12px;
+    margin: 5px;
+    max-width: 70%;
+    border-radius: 12px;
+    word-wrap: break-word;
     white-space: pre-wrap;
-    word-break: break-word;
 }
 
 .user-msg {
-    background: #e0f7ff;
+    background-color: #e0f7ff;
     align-self: flex-start;
     border-top-left-radius: 0;
 }
 
 .assistant-msg {
-    background: #d4ffd4;
+    background-color: #d4ffd4;
     align-self: flex-end;
     border-top-right-radius: 0;
 }
 
-/* =========================
-   ВВОД
-========================= */
-
 .input-container {
-    width: 100%;
-    max-width: 900px;
-    margin: 0 auto;
-
-    display: flex;
-    gap: 6px;
-    padding: 10px;
-
-    box-sizing: border-box;
-    background: #f9f9f9;
-    border-top: 1px solid #ccc;
-
-    position: sticky;
+    position: fixed;
     bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 5px;
+    padding: 10px;
+    background-color: #f9f9f9;
+    justify-content: center;
+    border-top: 1px solid #ccc;
+    box-sizing: border-box;
+    z-index: 100;
+    max-width: 800px;
+    width: 100%;
 }
 
 #prompt {
     flex: 1;
-    padding: 12px;
+    padding: 8px 12px;
     font-size: 16px;
-    border-radius: 10px;
+    min-width: 0;
+    max-width: 700px;
     border: 1px solid #ccc;
+    border-radius: 8px;
 }
 
 button {
-    padding: 12px 14px;
-    border-radius: 10px;
-    border: 1px solid #aaa;
-    background: #444;
-    color: #fff;
+    padding: 8px 12px;
     cursor: pointer;
+    border-radius: 8px;
+    border: 1px solid #aaa;
+    background-color: #444;
+    color: #fff;
     white-space: nowrap;
 }
 
 button:hover {
-    background: #666;
+    background-color: #666;
 }
-
-/* =========================
-   TOOLTIP
-========================= */
 
 .tooltip {
     position: relative;
-    display: flex;
-    align-items: center;
+    display: inline-block;
 }
 
 .tooltip .tooltiptext {
     visibility: hidden;
-    background: #255595;
+    width: max-content;
+    max-width: 350px;
+    background-color: #255595;
+    color: #fff;
+    text-align: left;
+    border-radius: 5px;
     padding: 8px;
-    border-radius: 6px;
     position: absolute;
-    bottom: 120%;
+    z-index: 10;
+    bottom: 100%;
     left: 50%;
     transform: translateX(-50%);
     opacity: 0;
-    transition: .2s;
-    z-index: 10;
+    transition: opacity 0.2s;
+    pointer-events: auto;
 }
 
-.tooltip:hover .tooltiptext {
-    visibility: visible;
-    opacity: 1;
+.inner-tooltip {
+    position: relative;
+    display: inline-block;
+    cursor: pointer;
+    color: #000;
+    text-decoration: underline;
 }
 
-/* =========================
-   АДАПТИВНОСТЬ
-========================= */
+.inner-tooltip .inner-tooltiptext {
+    visibility: hidden;
+    width: 300px;
+    background-color: #333;
+    color: #fff;
+    text-align: left;
+    border-radius: 5px;
+    padding: 8px;
+    position: absolute;
+    top: 0;
+    right: 100%;
+    transform: translateX(-5px);
+    z-index: 20;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: auto;
+}
 
-@media (max-width: 768px) {
-
+/* ============ TABLET (768px и меньше) ============ */
+@media screen and (max-width: 768px) {
     h2 {
         font-size: 1.3rem;
-    }
-
-    #chat-container {
-        border-radius: 0;
-        max-width: 100%;
-        margin-bottom: 0;
-    }
-
-    .input-container {
-        flex-wrap: wrap;
-        max-width: 100%;
-        gap: 8px;
-    }
-
-    #prompt {
-        width: 100%;
-    }
-
-    button {
-        width: 100%;
-        padding: 12px;
-        font-size: 15px;
-    }
-
-    .message {
-        max-width: 90%;
-        font-size: 0.95rem;
-    }
-}
-
-@media (max-width: 480px) {
-    .message {
-        max-width: 95%;
-        font-size: 0.9rem;
-    }
-
-    #prompt {
-        font-size: 14px;
-    }
-
-    button {
-        font-size: 14px;
-    }
-}
-
-/* --- Адаптив для телефонов --- */
-@media (max-width: 600px) {
-
-    body {
-        font-size: 14px;
-    }
-
-    h2 {
-        font-size: 20px;
         margin: 8px 0;
     }
 
     #chat-container {
-        width: 100%;
-        margin: 0;
+        width: 95%;
         padding: 8px;
-        max-height: calc(100vh - 150px);
-        border-radius: 0;
+        max-height: calc(100vh - 110px);
     }
 
     .message {
-        max-width: 90%;
+        max-width: 80%;
         padding: 6px 10px;
-        margin: 4px 0;
-        font-size: 14px;
+        font-size: 15px;
     }
 
     .input-container {
-        max-width: 100%;
         padding: 8px;
         gap: 4px;
-        border-radius: 0;
     }
 
     #prompt {
-        font-size: 14px;
+        font-size: 15px;
         padding: 6px 10px;
-        min-width: 0;
     }
 
     button {
@@ -230,18 +179,120 @@ button:hover {
         font-size: 14px;
     }
 
-    .file-upload-container button {
-        padding: 6px 10px;
-        font-size: 16px;
+    .tooltip .tooltiptext {
+        max-width: 280px;
+        font-size: 14px;
+    }
+
+    .inner-tooltip .inner-tooltiptext {
+        width: 250px;
+        font-size: 13px;
+    }
+}
+
+/* ============ MOBILE (480px и меньше) ============ */
+@media screen and (max-width: 480px) {
+    h2 {
+        font-size: 1.1rem;
+        margin: 6px 0;
+    }
+
+    #chat-container {
+        width: 100%;
+        margin: 5px auto;
+        padding: 6px;
+        border-radius: 0;
+        max-height: calc(100vh - 100px);
+    }
+
+    .message {
+        max-width: 90%;
+        padding: 6px 8px;
+        font-size: 14px;
+        margin: 3px;
+    }
+
+    .input-container {
+        padding: 6px;
+        gap: 3px;
+        flex-wrap: wrap;
+    }
+
+    #prompt {
+        font-size: 14px;
+        padding: 8px;
+        width: 100%;
+        max-width: none;
+        order: 1;
+    }
+
+    button {
+        padding: 8px 10px;
+        font-size: 13px;
+        flex: 1;
+        order: 2;
+    }
+
+    /* На мобильных кнопки в ряд под инпутом */
+    .input-container {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    #prompt {
+        flex: 1 1 100%;
+        margin-bottom: 5px;
     }
 
     .tooltip .tooltiptext {
-        max-width: 250px;
-        font-size: 12px;
+        max-width: 200px;
+        font-size: 13px;
+        left: 0;
+        transform: none;
     }
 
     .inner-tooltip .inner-tooltiptext {
         width: 200px;
         font-size: 12px;
+        right: auto;
+        left: 0;
+        transform: translateY(-100%);
+    }
+}
+
+/* ============ ОЧЕНЬ МАЛЕНЬКИЕ ЭКРАНЫ (320px) ============ */
+@media screen and (max-width: 320px) {
+    h2 {
+        font-size: 1rem;
+    }
+
+    .message {
+        max-width: 95%;
+        font-size: 13px;
+    }
+
+    #prompt {
+        font-size: 13px;
+    }
+
+    button {
+        font-size: 12px;
+        padding: 6px 8px;
+    }
+}
+
+/* ============ LANDSCAPE MOBILE ============ */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+    #chat-container {
+        max-height: calc(100vh - 80px);
+    }
+
+    .input-container {
+        padding: 5px;
+    }
+
+    h2 {
+        margin: 5px 0;
+        font-size: 1rem;
     }
 }

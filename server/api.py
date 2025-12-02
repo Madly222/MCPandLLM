@@ -118,7 +118,7 @@ def load_storage_files():
             except Exception as e:
                 logger.error(f"[{role}] Ошибка загрузки {file_path.name}: {e}")
 
-@app.on_event("startup")
+@app.lifespan("startup")
 async def startup():
     if not vector_store.is_connected():
         if vector_store.connect():

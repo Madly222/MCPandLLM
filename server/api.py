@@ -5,8 +5,6 @@ import asyncio
 from pathlib import Path
 from urllib.parse import quote
 
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -120,11 +118,17 @@ def load_storage_files():
             except Exception as e:
                 logger.error(f"[{role}] Ошибка загрузки {file_path.name}: {e}")
 
+@app.on_event("startup")
+async def startup():
+    if not vector_store.is_connected():
+        if vector_store.connect():
+            logger.info("Weaviate подключен")
+        else:
+            logger.warning("Не удалось подключиться к Weaviate")
+
+    asyncio.create_task(periodic_task())
+
 async def periodic_task():
-    """
-    Периодическая переиндексация файлов каждые 5 минут.
-    Ждёт 5 минут после запуска, чтобы не дублировать стартовую загрузку.
-    """
     await asyncio.sleep(300)
 
     while True:
@@ -136,27 +140,6 @@ async def periodic_task():
         await asyncio.sleep(300)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # === startup ===
-    if not vector_store.is_connected():
-        if vector_store.connect():
-            logger.info("Weaviate подключен")
-        else:
-            logger.warning("Не удалось подключиться к Weaviate")
-
-    load_storage_files()
-
-    task = asyncio.create_task(periodic_task())
-
-    try:
-        yield
-    finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
 
 @app.post("/login")
 async def login(data: dict):

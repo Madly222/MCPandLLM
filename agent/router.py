@@ -134,7 +134,6 @@ def _find_file_by_pattern(pattern: str) -> Optional[str]:
 
     return best_match
 
-
 def _is_complex_edit_command(text: str) -> bool:
     complex_patterns = [
         r"удали.*все",

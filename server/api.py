@@ -118,7 +118,6 @@ def load_storage_files():
             except Exception as e:
                 logger.error(f"[{role}] Ошибка загрузки {file_path.name}: {e}")
 
-
 @app.on_event("startup")
 async def startup():
     if not vector_store.is_connected():
@@ -126,11 +125,15 @@ async def startup():
             logger.info("Weaviate подключен")
         else:
             logger.warning("Не удалось подключиться к Weaviate")
+
     load_storage_files()
+
     asyncio.create_task(periodic_task())
 
 
 async def periodic_task():
+    await asyncio.sleep(300)
+
     while True:
         try:
             load_storage_files()
@@ -138,6 +141,7 @@ async def periodic_task():
         except Exception as e:
             logger.error(f"Ошибка periodic_task: {e}")
         await asyncio.sleep(300)
+
 
 
 @app.post("/login")

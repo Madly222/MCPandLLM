@@ -114,100 +114,122 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Inner tooltip (второй уровень) - слева от первого блока (на ПК) или сверху (на мобильных)
     const innerTooltips = document.querySelectorAll('.inner-tooltip');
+    const isMobile = () => window.innerWidth <= 480;
+
     innerTooltips.forEach(inner => {
         const innerText = inner.querySelector('.inner-tooltiptext');
         const closeBtn = inner.querySelector('.close-tooltip');
         if (!innerText) return;
 
         function showTooltip() {
-            // Показываем
-            innerText.style.visibility = 'visible';
-            innerText.style.opacity = '1';
+            if (isMobile()) {
+                // На мобильных используем класс
+                innerText.classList.add('active');
+            } else {
+                // На ПК используем inline стили
+                innerText.style.visibility = 'visible';
+                innerText.style.opacity = '1';
 
-            // На мобильных (< 480px) CSS уже задаёт позицию сверху, не трогаем
-            if (window.innerWidth <= 480) {
-                return;
+                // Сбрасываем позицию на дефолтную (слева)
+                innerText.style.right = '100%';
+                innerText.style.left = 'auto';
+                innerText.style.top = '50%';
+                innerText.style.bottom = 'auto';
+                innerText.style.transform = 'translateY(-50%)';
+                innerText.style.marginRight = '10px';
+                innerText.style.marginLeft = '0';
+                innerText.style.marginBottom = '0';
+
+                // Проверяем границы экрана после отрисовки
+                requestAnimationFrame(() => {
+                    const rect = innerText.getBoundingClientRect();
+                    const viewportHeight = window.innerHeight;
+
+                    // Если выходит слева за экран
+                    if (rect.left < 5) {
+                        innerText.style.right = 'auto';
+                        innerText.style.left = '100%';
+                        innerText.style.marginRight = '0';
+                        innerText.style.marginLeft = '10px';
+                    }
+
+                    const newRect = innerText.getBoundingClientRect();
+
+                    if (newRect.top < 5) {
+                        innerText.style.top = '0';
+                        innerText.style.transform = 'none';
+                    }
+
+                    if (newRect.bottom > viewportHeight - 5) {
+                        innerText.style.top = 'auto';
+                        innerText.style.bottom = '0';
+                        innerText.style.transform = 'none';
+                    }
+                });
             }
-
-            // На ПК - сбрасываем позицию на дефолтную (слева)
-            innerText.style.right = '100%';
-            innerText.style.left = 'auto';
-            innerText.style.top = '50%';
-            innerText.style.bottom = 'auto';
-            innerText.style.transform = 'translateY(-50%)';
-            innerText.style.marginRight = '10px';
-            innerText.style.marginLeft = '0';
-            innerText.style.marginBottom = '0';
-
-            // Проверяем границы экрана после отрисовки
-            requestAnimationFrame(() => {
-                const rect = innerText.getBoundingClientRect();
-                const viewportHeight = window.innerHeight;
-
-                // Если выходит слева за экран - показываем справа
-                if (rect.left < 5) {
-                    innerText.style.right = 'auto';
-                    innerText.style.left = '100%';
-                    innerText.style.marginRight = '0';
-                    innerText.style.marginLeft = '10px';
-                }
-
-                // Пересчитываем после возможного сдвига
-                const newRect = innerText.getBoundingClientRect();
-
-                // Если выходит сверху
-                if (newRect.top < 5) {
-                    innerText.style.top = '0';
-                    innerText.style.transform = 'none';
-                }
-
-                // Если выходит снизу
-                if (newRect.bottom > viewportHeight - 5) {
-                    innerText.style.top = 'auto';
-                    innerText.style.bottom = '0';
-                    innerText.style.transform = 'none';
-                }
-            });
         }
 
         function hideTooltip() {
-            innerText.style.visibility = 'hidden';
-            innerText.style.opacity = '0';
+            if (isMobile()) {
+                innerText.classList.remove('active');
+            } else {
+                innerText.style.visibility = 'hidden';
+                innerText.style.opacity = '0';
+            }
         }
 
-        inner.addEventListener('mouseenter', showTooltip);
-        inner.addEventListener('mouseleave', hideTooltip);
+        function hideAllTooltips() {
+            document.querySelectorAll('.inner-tooltiptext').forEach(t => {
+                t.classList.remove('active');
+                t.style.visibility = 'hidden';
+                t.style.opacity = '0';
+            });
+        }
 
-        // Крестик для закрытия на мобильных
+        // ПК - hover
+        inner.addEventListener('mouseenter', () => {
+            if (!isMobile()) {
+                showTooltip();
+            }
+        });
+
+        inner.addEventListener('mouseleave', () => {
+            if (!isMobile()) {
+                hideTooltip();
+            }
+        });
+
+        // Мобильные - только тап
+        inner.addEventListener('click', (e) => {
+            if (isMobile()) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const isActive = innerText.classList.contains('active');
+                hideAllTooltips();
+
+                if (!isActive) {
+                    showTooltip();
+                }
+            }
+        });
+
+        // Крестик для закрытия
         if (closeBtn) {
             closeBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                hideTooltip();
-            });
-
-            // Для тач-устройств
-            closeBtn.addEventListener('touchend', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 hideTooltip();
             });
         }
+    });
 
-        // На мобильных открываем по тапу
-        inner.addEventListener('click', (e) => {
-            if (window.innerWidth <= 480) {
-                e.stopPropagation();
-                if (innerText.style.visibility === 'visible') {
-                    hideTooltip();
-                } else {
-                    // Закрываем другие открытые tooltip
-                    document.querySelectorAll('.inner-tooltiptext').forEach(t => {
-                        t.style.visibility = 'hidden';
-                        t.style.opacity = '0';
-                    });
-                    showTooltip();
-                }
-            }
-        });
+    // Закрыть tooltip при клике вне
+    document.addEventListener('click', (e) => {
+        if (isMobile() && !e.target.closest('.tooltip')) {
+            document.querySelectorAll('.inner-tooltiptext').forEach(t => {
+                t.classList.remove('active');
+            });
+        }
     });
 });

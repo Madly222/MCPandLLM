@@ -149,8 +149,7 @@ button:active {
     position: absolute;
     z-index: 200;
     bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
+    right: 0;
     margin-bottom: 8px;
     opacity: 0;
     transition: opacity 0.2s;
@@ -165,29 +164,32 @@ button:active {
 
 .inner-tooltip {
     position: relative;
-    display: inline-block;
+    display: block;
     cursor: pointer;
     color: #fff;
     text-decoration: underline;
-    margin: 5px 0;
+    margin: 8px 0;
+    padding: 4px 0;
 }
 
 .inner-tooltip .inner-tooltiptext {
     visibility: hidden;
-    width: 250px;
+    width: 280px;
     background-color: #333;
     color: #fff;
     text-align: left;
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 10px;
     position: absolute;
-    bottom: 100%;
-    left: 0;
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-right: 10px;
     z-index: 210;
     opacity: 0;
     transition: opacity 0.2s;
     pointer-events: auto;
-    margin-bottom: 5px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
 .inner-tooltip:hover .inner-tooltiptext {
@@ -339,17 +341,17 @@ button:active {
     }
 
     .tooltip .tooltiptext {
-        left: auto;
         right: 0;
-        transform: none;
-        max-width: 200px;
+        max-width: 250px;
         font-size: 13px;
         padding: 10px;
     }
 
     .inner-tooltip .inner-tooltiptext {
-        width: 180px;
+        width: 200px;
         font-size: 12px;
+        right: 100%;
+        margin-right: 8px;
     }
 
     /* Login page mobile */

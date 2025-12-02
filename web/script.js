@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Tooltip
+    // Tooltip первого уровня (над кнопкой ?)
     const tooltip = document.querySelector('.tooltip');
     if (tooltip) {
         const tooltipText = tooltip.querySelector('.tooltiptext');
@@ -97,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
             hideTimeout = setTimeout(() => {
                 tooltipText.style.visibility = 'hidden';
                 tooltipText.style.opacity = '0';
-            }, 500);
+            }, 300);
         });
 
         tooltipText.addEventListener('mouseenter', () => {
@@ -108,39 +108,64 @@ document.addEventListener('DOMContentLoaded', () => {
             hideTimeout = setTimeout(() => {
                 tooltipText.style.visibility = 'hidden';
                 tooltipText.style.opacity = '0';
-            }, 250);
+            }, 200);
         });
     }
 
+    // Inner tooltip (второй уровень) - слева от первого блока
     const innerTooltips = document.querySelectorAll('.inner-tooltip');
     innerTooltips.forEach(inner => {
         const innerText = inner.querySelector('.inner-tooltiptext');
         if (!innerText) return;
 
         inner.addEventListener('mouseenter', () => {
-            innerText.style.visibility = 'hidden';
-            innerText.style.display = 'block';
-            innerText.style.opacity = '0';
+            // Сначала сбрасываем позицию на дефолтную (слева)
+            innerText.style.right = '100%';
+            innerText.style.left = 'auto';
+            innerText.style.top = '50%';
+            innerText.style.bottom = 'auto';
+            innerText.style.transform = 'translateY(-50%)';
+            innerText.style.marginRight = '10px';
+            innerText.style.marginLeft = '0';
 
-            const rectParent = inner.getBoundingClientRect();
-            const tooltipHeight = innerText.offsetHeight;
-            const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-
-            if (rectParent.bottom + tooltipHeight > viewportHeight) {
-                innerText.style.top = `${-tooltipHeight}px`;
-            } else {
-                innerText.style.top = `${inner.offsetHeight}px`;
-            }
-
+            // Показываем
             innerText.style.visibility = 'visible';
             innerText.style.opacity = '1';
-            innerText.style.display = '';
+
+            // Проверяем границы экрана после отрисовки
+            requestAnimationFrame(() => {
+                const rect = innerText.getBoundingClientRect();
+                const viewportHeight = window.innerHeight;
+
+                // Если выходит слева за экран - показываем справа
+                if (rect.left < 5) {
+                    innerText.style.right = 'auto';
+                    innerText.style.left = '100%';
+                    innerText.style.marginRight = '0';
+                    innerText.style.marginLeft = '10px';
+                }
+
+                // Пересчитываем после возможного сдвига
+                const newRect = innerText.getBoundingClientRect();
+
+                // Если выходит сверху
+                if (newRect.top < 5) {
+                    innerText.style.top = '0';
+                    innerText.style.transform = 'none';
+                }
+
+                // Если выходит снизу
+                if (newRect.bottom > viewportHeight - 5) {
+                    innerText.style.top = 'auto';
+                    innerText.style.bottom = '0';
+                    innerText.style.transform = 'none';
+                }
+            });
         });
 
         inner.addEventListener('mouseleave', () => {
             innerText.style.visibility = 'hidden';
             innerText.style.opacity = '0';
-            innerText.style.top = '';
         });
     });
 });

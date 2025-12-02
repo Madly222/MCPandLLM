@@ -184,3 +184,64 @@ button:hover {
         font-size: 14px;
     }
 }
+
+/* --- Адаптив для телефонов --- */
+@media (max-width: 600px) {
+
+    body {
+        font-size: 14px;
+    }
+
+    h2 {
+        font-size: 20px;
+        margin: 8px 0;
+    }
+
+    #chat-container {
+        width: 100%;
+        margin: 0;
+        padding: 8px;
+        max-height: calc(100vh - 150px);
+        border-radius: 0;
+    }
+
+    .message {
+        max-width: 90%;
+        padding: 6px 10px;
+        margin: 4px 0;
+        font-size: 14px;
+    }
+
+    .input-container {
+        max-width: 100%;
+        padding: 8px;
+        gap: 4px;
+        border-radius: 0;
+    }
+
+    #prompt {
+        font-size: 14px;
+        padding: 6px 10px;
+        min-width: 0;
+    }
+
+    button {
+        padding: 6px 10px;
+        font-size: 14px;
+    }
+
+    .file-upload-container button {
+        padding: 6px 10px;
+        font-size: 16px;
+    }
+
+    .tooltip .tooltiptext {
+        max-width: 250px;
+        font-size: 12px;
+    }
+
+    .inner-tooltip .inner-tooltiptext {
+        width: 200px;
+        font-size: 12px;
+    }
+}

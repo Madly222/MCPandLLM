@@ -112,14 +112,23 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Inner tooltip (второй уровень) - слева от первого блока
+    // Inner tooltip (второй уровень) - слева от первого блока (на ПК) или сверху (на мобильных)
     const innerTooltips = document.querySelectorAll('.inner-tooltip');
     innerTooltips.forEach(inner => {
         const innerText = inner.querySelector('.inner-tooltiptext');
         if (!innerText) return;
 
         inner.addEventListener('mouseenter', () => {
-            // Сначала сбрасываем позицию на дефолтную (слева)
+            // Показываем
+            innerText.style.visibility = 'visible';
+            innerText.style.opacity = '1';
+
+            // На мобильных (< 480px) CSS уже задаёт позицию сверху, не трогаем
+            if (window.innerWidth <= 480) {
+                return;
+            }
+
+            // На ПК - сбрасываем позицию на дефолтную (слева)
             innerText.style.right = '100%';
             innerText.style.left = 'auto';
             innerText.style.top = '50%';
@@ -127,10 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
             innerText.style.transform = 'translateY(-50%)';
             innerText.style.marginRight = '10px';
             innerText.style.marginLeft = '0';
-
-            // Показываем
-            innerText.style.visibility = 'visible';
-            innerText.style.opacity = '1';
+            innerText.style.marginBottom = '0';
 
             // Проверяем границы экрана после отрисовки
             requestAnimationFrame(() => {

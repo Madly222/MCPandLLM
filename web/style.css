@@ -348,10 +348,16 @@ button:active {
     }
 
     .inner-tooltip .inner-tooltiptext {
-        width: 200px;
+        width: 220px;
         font-size: 12px;
-        right: 100%;
-        margin-right: 8px;
+        /* На мобильных показываем СВЕРХУ */
+        right: auto;
+        left: 0;
+        top: auto;
+        bottom: 100%;
+        transform: none;
+        margin-right: 0;
+        margin-bottom: 8px;
     }
 
     /* Login page mobile */

@@ -1,46 +1,45 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>LLM Assistant with Tools</title>
-<link rel="stylesheet" href="/web/style.css">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LLM Assistant with Tools</title>
+    <link rel="stylesheet" href="/web/style.css?v=2">
 </head>
 <body>
-<h2>MCP LLM Assistant</h2>
+    <h2>MCP LLM Assistant</h2>
 
-<div id="chat-container"></div>
+    <div id="chat-container"></div>
 
-<div class="input-container">
-  <input type="text" id="prompt" placeholder="Введите сообщение...">
-  <button id="sendBtn">Отправить</button>
+    <div class="input-container">
+        <input type="text" id="prompt" placeholder="Введите сообщение...">
+        <button id="sendBtn">Отправить</button>
 
-  <!-- Кнопка + для загрузки файла -->
-  <div class="file-upload-container">
-    <button id="uploadBtn">+</button>
-    <input type="file" id="fileInput" style="display: none;">
-  </div>
-
-  <div class="tooltip">
-    <button>❓</button>
-    <div class="tooltiptext">
-      <div class="inner-tooltip">Работа с текстовыми файлами
-        <div class="inner-tooltiptext">
-          Инуструмент1 (.txt, .pdf, .docx)<br>
-          Ключевые слова:
+        <div class="file-upload-container">
+            <button id="uploadBtn">+</button>
+            <input type="file" id="fileInput" style="display: none;">
         </div>
-      </div>
-      <br>
-      <div class="inner-tooltip">Работа с таблицами
-        <div class="inner-tooltiptext">
-          Таблицы<br>
-          Ключевые слова: "Сводка"
+
+        <div class="tooltip">
+            <button>❓</button>
+            <div class="tooltiptext">
+                <div class="inner-tooltip">Работа с текстовыми файлами
+                    <div class="inner-tooltiptext">
+                        Инструмент (.txt, .pdf, .docx)<br>
+                        Ключевые слова:
+                    </div>
+                </div>
+                <br>
+                <div class="inner-tooltip">Работа с таблицами
+                    <div class="inner-tooltiptext">
+                        Таблицы<br>
+                        Ключевые слова: "Сводка"
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
     </div>
-  </div>
-</div>
 
-<script src="/web/script.js"></script>
+    <script src="/web/script.js?v=2"></script>
 </body>
 </html>

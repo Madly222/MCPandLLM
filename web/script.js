@@ -116,9 +116,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const innerTooltips = document.querySelectorAll('.inner-tooltip');
     innerTooltips.forEach(inner => {
         const innerText = inner.querySelector('.inner-tooltiptext');
+        const closeBtn = inner.querySelector('.close-tooltip');
         if (!innerText) return;
 
-        inner.addEventListener('mouseenter', () => {
+        function showTooltip() {
             // Показываем
             innerText.style.visibility = 'visible';
             innerText.style.opacity = '1';
@@ -167,11 +168,46 @@ document.addEventListener('DOMContentLoaded', () => {
                     innerText.style.transform = 'none';
                 }
             });
-        });
+        }
 
-        inner.addEventListener('mouseleave', () => {
+        function hideTooltip() {
             innerText.style.visibility = 'hidden';
             innerText.style.opacity = '0';
+        }
+
+        inner.addEventListener('mouseenter', showTooltip);
+        inner.addEventListener('mouseleave', hideTooltip);
+
+        // Крестик для закрытия на мобильных
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                hideTooltip();
+            });
+
+            // Для тач-устройств
+            closeBtn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                hideTooltip();
+            });
+        }
+
+        // На мобильных открываем по тапу
+        inner.addEventListener('click', (e) => {
+            if (window.innerWidth <= 480) {
+                e.stopPropagation();
+                if (innerText.style.visibility === 'visible') {
+                    hideTooltip();
+                } else {
+                    // Закрываем другие открытые tooltip
+                    document.querySelectorAll('.inner-tooltiptext').forEach(t => {
+                        t.style.visibility = 'hidden';
+                        t.style.opacity = '0';
+                    });
+                    showTooltip();
+                }
+            }
         });
     });
 });

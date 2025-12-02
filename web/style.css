@@ -192,6 +192,10 @@ button:active {
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
+.close-tooltip {
+    display: none;
+}
+
 .inner-tooltip:hover .inner-tooltiptext {
     visibility: visible;
     opacity: 1;
@@ -348,16 +352,32 @@ button:active {
     }
 
     .inner-tooltip .inner-tooltiptext {
-        width: 220px;
+        width: 250px;
         font-size: 12px;
-        /* На мобильных показываем СВЕРХУ */
-        right: auto;
-        left: 0;
+        /* На мобильных показываем СВЕРХУ и выравниваем по правому краю как 1-й уровень */
+        right: 0;
+        left: auto;
         top: auto;
         bottom: 100%;
         transform: none;
         margin-right: 0;
         margin-bottom: 8px;
+        padding-top: 25px;
+    }
+
+    .close-tooltip {
+        display: block;
+        position: absolute;
+        top: 5px;
+        right: 8px;
+        font-size: 16px;
+        cursor: pointer;
+        color: #aaa;
+        padding: 2px 6px;
+    }
+
+    .close-tooltip:hover {
+        color: #fff;
     }
 
     /* Login page mobile */

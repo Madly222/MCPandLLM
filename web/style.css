@@ -76,15 +76,19 @@ h2 {
 .input-container {
     position: fixed;
     bottom: 0;
-    left: 0;
-    right: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%;
+    max-width: 1200px;
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 12px 15px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
     background-color: #f9f9f9;
-    border-top: 1px solid #ccc;
+    border: 1px solid #ccc;
+    border-bottom: none;
+    border-radius: 12px 12px 0 0;
     z-index: 100;
 }
 
@@ -252,17 +256,18 @@ button:active {
         border-radius: 10px;
     }
 
+    .input-container {
+        width: 94%;
+        padding: 10px 12px;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom));
+        gap: 8px;
+    }
+
     .message {
         max-width: 80%;
         font-size: 15px;
         padding: 8px 12px;
         margin: 6px 4px;
-    }
-
-    .input-container {
-        padding: 10px 12px;
-        padding-bottom: calc(10px + env(safe-area-inset-bottom));
-        gap: 8px;
     }
 
     #prompt {
@@ -291,11 +296,11 @@ button:active {
     #chat-container {
         width: 96%;
         margin: 8px auto;
-        margin-bottom: 130px;
+        margin-bottom: 80px;
         padding: 10px;
         border-radius: 8px;
-        max-height: calc(100vh - 180px);
-        max-height: calc(100dvh - 180px);
+        max-height: calc(100vh - 130px);
+        max-height: calc(100dvh - 130px);
     }
 
     .message {
@@ -306,40 +311,31 @@ button:active {
     }
 
     .input-container {
-        flex-wrap: wrap;
+        width: 96%;
+        flex-wrap: nowrap;
         padding: 10px;
         padding-bottom: calc(10px + env(safe-area-inset-bottom));
         gap: 8px;
+        border-radius: 10px 10px 0 0;
     }
 
     #prompt {
-        flex: 1 1 100%;
-        order: 1;
+        flex: 1;
         font-size: 16px;
         padding: 12px;
-        margin-bottom: 4px;
     }
 
     #sendBtn {
-        flex: 1;
-        order: 2;
-        padding: 10px 12px;
-    }
-
-    .file-upload-container {
-        order: 3;
+        padding: 12px 14px;
+        font-size: 16px;
     }
 
     .file-upload-container button {
-        padding: 10px 14px;
-    }
-
-    .tooltip {
-        order: 4;
+        padding: 12px 14px;
     }
 
     .tooltip button {
-        padding: 10px 12px;
+        padding: 12px;
     }
 
     .tooltip .tooltiptext {
@@ -382,9 +378,15 @@ button:active {
     #chat-container {
         width: 98%;
         padding: 8px;
-        margin-bottom: 125px;
-        max-height: calc(100vh - 170px);
-        max-height: calc(100dvh - 170px);
+        margin-bottom: 75px;
+        max-height: calc(100vh - 120px);
+        max-height: calc(100dvh - 120px);
+    }
+
+    .input-container {
+        width: 98%;
+        gap: 6px;
+        padding: 8px;
     }
 
     .message {
@@ -399,12 +401,8 @@ button:active {
     }
 
     button {
-        padding: 8px 10px;
-        font-size: 12px;
-    }
-
-    #sendBtn {
-        padding: 10px 8px;
+        padding: 10px;
+        font-size: 14px;
     }
 
     .login-box {

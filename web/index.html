@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>LLM Assistant with Tools</title>
-    <link rel="stylesheet" href="/web/style.css?v=3">
+    <link rel="stylesheet" href="/web/style.css?v=4">
 </head>
 <body>
     <h2>MCP LLM Assistant</h2>
@@ -13,15 +13,15 @@
 
     <div class="input-container">
         <input type="text" id="prompt" placeholder="Введите сообщение...">
-        <button id="sendBtn">Отправить</button>
+        <button id="sendBtn" title="Отправить">➤</button>
 
         <div class="file-upload-container">
-            <button id="uploadBtn">+</button>
+            <button id="uploadBtn" title="Загрузить файл">+</button>
             <input type="file" id="fileInput" style="display: none;">
         </div>
 
         <div class="tooltip">
-            <button>❓</button>
+            <button title="Помощь">?</button>
             <div class="tooltiptext">
                 <div class="inner-tooltip">Работа с текстовыми файлами
                     <div class="inner-tooltiptext">

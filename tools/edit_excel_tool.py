@@ -18,7 +18,9 @@ SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
 
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-MAX_FILE_AGE_MINUTES = 5
+# Файлы для скачивания должны жить 30 минут, чтобы их успели забрать даже при
+# повторной генерации другими пользователями.
+MAX_FILE_AGE_MINUTES = 30
 
 
 def _cleanup_old_downloads():

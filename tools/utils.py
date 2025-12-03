@@ -10,7 +10,6 @@ BASE_FILES_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
 if not BASE_FILES_DIR.exists():
     BASE_FILES_DIR.mkdir(parents=True, exist_ok=True)
 
-
 def read_file(filepath) -> str:
     if isinstance(filepath, str):
         filepath = Path(filepath)

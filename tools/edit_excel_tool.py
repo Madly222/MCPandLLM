@@ -14,12 +14,11 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
 DOWNLOADS_DIR = Path(os.getenv("DOWNLOADS_DIR", BASE_DIR / "downloads"))
-SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
+SERVER_URL = os.getenv("SERVER_URL", "http://172.22.22.73:8000")
 
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_FILE_AGE_MINUTES = 30
-
 
 def cleanup_old_downloads():
     if not DOWNLOADS_DIR.exists():

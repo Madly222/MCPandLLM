@@ -129,6 +129,21 @@ button:active {
     background-color: #333;
 }
 
+.download-btn {
+    background-color: #555;
+    color: #e5e5e5;
+    border-color: #777;
+    cursor: not-allowed;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.download-btn.active {
+    background-color: #fff;
+    color: #000;
+    border-color: #ccc;
+    cursor: pointer;
+}
+
 .file-upload-container {
     flex-shrink: 0;
 }

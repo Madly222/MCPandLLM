@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatContainer = document.getElementById('chat-container');
     const uploadBtn = document.getElementById('uploadBtn');
     const fileInput = document.getElementById('fileInput');
+    const downloadBtn = document.getElementById('downloadBtn');
+    let lastDownloadLink = '';
 
     if (!input || !sendBtn || !chatContainer) {
         console.log('Элементы чата не найдены (возможно страница логина)');
@@ -34,10 +36,60 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const data = await res.json();
             appendChat('Помощник', data.response || 'Ошибка при получении ответа');
+
+            const foundLink = findDownloadLink(data.response || '');
+            if (foundLink) {
+                setDownloadLink(foundLink);
+            }
         } catch (err) {
             appendChat('Система', 'Ошибка при соединении с сервером');
             console.error(err);
         }
+    }
+
+    function findDownloadLink(text) {
+        const urlPattern = /(https?:\/\/[\S]+\/download\/[^\s]+|\/download\/[^\s]+)/i;
+        const match = text.match(urlPattern);
+        if (!match) return '';
+
+        try {
+            return new URL(match[0], window.location.origin).href;
+        } catch (e) {
+            console.error('Не удалось разобрать ссылку на скачивание', e);
+            return '';
+        }
+    }
+
+    function updateDownloadButtonState(isAvailable) {
+        if (!downloadBtn) return;
+        downloadBtn.disabled = !isAvailable;
+        downloadBtn.classList.toggle('active', isAvailable);
+        downloadBtn.title = isAvailable ? 'Скачать файл' : 'Нет файла для скачивания';
+    }
+
+    async function checkDownloadAvailability() {
+        if (!lastDownloadLink) {
+            updateDownloadButtonState(false);
+            return;
+        }
+
+        try {
+            const res = await fetch(lastDownloadLink, { method: 'HEAD', credentials: 'include' });
+            const available = res.ok;
+            updateDownloadButtonState(available);
+
+            if (!available) {
+                lastDownloadLink = '';
+            }
+        } catch (e) {
+            console.error('Не удалось проверить доступность файла', e);
+            updateDownloadButtonState(false);
+        }
+    }
+
+    function setDownloadLink(link) {
+        lastDownloadLink = link;
+        checkDownloadAvailability();
     }
 
     function appendChat(role, text) {
@@ -79,6 +131,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
             fileInput.value = '';
         });
+    }
+
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', () => {
+            if (!lastDownloadLink || downloadBtn.disabled) return;
+            window.open(lastDownloadLink, '_blank');
+        });
+
+        setInterval(() => {
+            if (lastDownloadLink) {
+                checkDownloadAvailability();
+            }
+        }, 30000);
+
+        updateDownloadButtonState(false);
     }
 
     // Tooltip первого уровня (над кнопкой ?)

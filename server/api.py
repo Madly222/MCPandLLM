@@ -1,4 +1,3 @@
-# api.py
 import os
 import logging
 import asyncio
@@ -22,7 +21,37 @@ from fastapi.responses import RedirectResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+async def periodic_task():
+    await asyncio.sleep(300)
 
+    while True:
+        try:
+            load_storage_files()
+            logger.info("load_storage_files выполнен")
+        except Exception as e:
+            logger.error(f"Ошибка periodic_task: {e}")
+        await asyncio.sleep(300)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not vector_store.is_connected():
+        if vector_store.connect():
+            logger.info("Weaviate подключен")
+        else:
+            logger.warning("Не удалось подключиться к Weaviate")
+
+    task = asyncio.create_task(periodic_task())
+
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,6 +60,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 web_dir = BASE_DIR / "web"
@@ -51,38 +82,6 @@ PUBLIC_PATHS = {
     "/web/script.js",
     "/favicon.ico",
 }
-
-async def periodic_task():
-    await asyncio.sleep(300)
-
-    while True:
-        try:
-            load_storage_files()
-            logger.info("load_storage_files выполнен")
-        except Exception as e:
-            logger.error(f"Ошибка periodic_task: {e}")
-        await asyncio.sleep(300)
-
-@asynccontextmanager
-async def lifespan(app):
-    if not vector_store.is_connected():
-        if vector_store.connect():
-            logger.info("Weaviate подключен")
-        else:
-            logger.warning("Не удалось подключиться к Weaviate")
-
-    task = asyncio.create_task(periodic_task())
-
-    try:
-        yield
-    finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):

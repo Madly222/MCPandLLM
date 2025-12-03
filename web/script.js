@@ -75,18 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const res = await fetch(lastDownloadLink, { method: 'HEAD', credentials: 'include' });
-            let available = res.ok;
-
-            // Некоторые серверы не поддерживают HEAD. Если файл есть, но HEAD запрещён, пробуем GET.
-            if (!available && res.status === 405) {
-                const fallbackRes = await fetch(lastDownloadLink, { method: 'GET', credentials: 'include' });
-                available = fallbackRes.ok;
-                // Прерываем загрузку, если браузер сам не отменил (загрузка не должна продолжаться в фоне)
-                if (fallbackRes.body && fallbackRes.body.cancel) {
-                    fallbackRes.body.cancel();
-                }
-            }
-
+            const available = res.ok;
             updateDownloadButtonState(available);
 
             if (!available) {
@@ -100,7 +89,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setDownloadLink(link) {
         lastDownloadLink = link;
-        updateDownloadButtonState(true);
         checkDownloadAvailability();
     }
 
@@ -148,14 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (downloadBtn) {
         downloadBtn.addEventListener('click', () => {
             if (!lastDownloadLink || downloadBtn.disabled) return;
-            const a = document.createElement('a');
-            a.href = lastDownloadLink;
-            a.target = '_blank';
-            a.rel = 'noopener';
-            a.download = '';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+            window.open(lastDownloadLink, '_blank');
         });
 
         setInterval(() => {

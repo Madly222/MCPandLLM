@@ -1,22 +1,24 @@
 import os
 import logging
 import asyncio
-from pathlib import Path
-from urllib.parse import quote
 
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from contextlib import asynccontextmanager
-
 from agent.agent import agent_process
 from vector_store import vector_store
-from tools.chunking_tool import index_file
+from pathlib import Path
+from urllib.parse import quote
+
 from user.users import verify_user
 from user.auth import create_access_token, decode_access_token
-from fastapi.responses import RedirectResponse
+
+from tools.chunking_tool import index_file
+from tools.edit_excel_tool import cleanup_old_downloads
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,7 +29,8 @@ async def periodic_task():
     while True:
         try:
             load_storage_files()
-            logger.info("load_storage_files выполнен")
+            cleanup_old_downloads()
+            logger.info("periodic_task выполнен")
         except Exception as e:
             logger.error(f"Ошибка periodic_task: {e}")
         await asyncio.sleep(300)
@@ -180,6 +183,10 @@ async def index(request: Request):
         return FileResponse(index_file_path)
     raise HTTPException(status_code=404, detail="index.html не найден")
 
+@app.get("/has-download")
+async def has_download(request: Request):
+    files = [f.name for f in DOWNLOADS_DIR.iterdir() if f.is_file()]
+    return {"available": len(files) > 0, "files": files}
 
 @app.post("/query")
 async def query(request: Request):

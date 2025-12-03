@@ -18,10 +18,10 @@ SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
 
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-MAX_FILE_AGE_MINUTES = 5
+MAX_FILE_AGE_MINUTES = 30
 
 
-def _cleanup_old_downloads():
+def cleanup_old_downloads():
     if not DOWNLOADS_DIR.exists():
         return
 
@@ -122,7 +122,6 @@ def edit_excel(
         "operations_applied": 3
     }
     """
-    _cleanup_old_downloads()
 
     source_path = _find_source_file(filename, role)
     if not source_path:

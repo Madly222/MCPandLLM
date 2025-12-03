@@ -18,51 +18,9 @@ from user.users import verify_user
 from user.auth import create_access_token, decode_access_token
 
 from tools.chunking_tool import index_file
-from tools.edit_excel_tool import cleanup_old_downloads
+from tools.edit_excel_tool import cleanup_old_downloads, get_available_downloads, check_file_exists
 
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-async def periodic_task():
-    await asyncio.sleep(300)
-
-    while True:
-        try:
-            load_storage_files()
-            logger.info("load_storage_files выполнен")
-        except Exception as e:
-            logger.error(f"Ошибка periodic_task: {e}")
-        await asyncio.sleep(300)
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    if not vector_store.is_connected():
-        if vector_store.connect():
-            logger.info("Weaviate подключен")
-        else:
-            logger.warning("Не удалось подключиться к Weaviate")
-
-    task = asyncio.create_task(periodic_task())
-
-    try:
-        yield
-    finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-app = FastAPI(lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -74,38 +32,6 @@ DOWNLOADS_DIR = Path(os.getenv("DOWNLOADS_DIR", BASE_DIR / "downloads"))
 
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-
-if web_dir.exists():
-    app.mount("/web", StaticFiles(directory=web_dir), name="web")
-
-PUBLIC_PATHS = {
-    "/login",
-    "/web/login.html",
-    "/web/style.css",
-    "/web/script.js",
-    "/favicon.ico",
-}
-
-@app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    path = request.url.path
-
-    if path in PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/openapi.json"):
-        return await call_next(request)
-
-    token = request.cookies.get("token", "")
-
-    if not token:
-        return RedirectResponse(url="/web/login.html")
-
-    try:
-        data = decode_access_token(token)
-        request.state.user = data["username"]
-        request.state.role = data["role"]
-    except HTTPException:
-        return RedirectResponse(url="/web/login.html")
-
-    return await call_next(request)
 
 
 def load_storage_files():
@@ -151,6 +77,104 @@ def load_storage_files():
                     logger.info(f"[{role}] {file_path.name} загружен")
             except Exception as e:
                 logger.error(f"[{role}] Ошибка загрузки {file_path.name}: {e}")
+
+async def periodic_task():
+    await asyncio.sleep(300)
+
+    while True:
+        try:
+            load_storage_files()
+            logger.info("load_storage_files выполнен")
+        except Exception as e:
+            logger.error(f"Ошибка periodic_task: {e}")
+        await asyncio.sleep(300)
+
+
+async def cleanup_downloads_task():
+    while True:
+        try:
+            deleted = cleanup_old_downloads()
+            if deleted > 0:
+                logger.info(f"Очистка downloads: удалено {deleted} файлов")
+        except Exception as e:
+            logger.error(f"Ошибка cleanup_downloads_task: {e}")
+        await asyncio.sleep(60)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not vector_store.is_connected():
+        if vector_store.connect():
+            logger.info("Weaviate подключен")
+        else:
+            logger.warning("Не удалось подключиться к Weaviate")
+
+    load_storage_files()
+
+    periodic = asyncio.create_task(periodic_task())
+    cleanup = asyncio.create_task(cleanup_downloads_task())
+
+    try:
+        yield
+    finally:
+        periodic.cancel()
+        cleanup.cancel()
+        try:
+            await periodic
+        except asyncio.CancelledError:
+            pass
+        try:
+            await cleanup
+        except asyncio.CancelledError:
+            pass
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+if web_dir.exists():
+    app.mount("/web", StaticFiles(directory=web_dir), name="web")
+
+PUBLIC_PATHS = {
+    "/login",
+    "/web/login.html",
+    "/web/style.css",
+    "/web/script.js",
+    "/favicon.ico",
+    "/downloads/available",
+    "/downloads/check",
+}
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+
+    if path in PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/openapi.json"):
+        return await call_next(request)
+
+    if path.startswith("/downloads/check/"):
+        return await call_next(request)
+
+    token = request.cookies.get("token", "")
+
+    if not token:
+        return RedirectResponse(url="/web/login.html")
+
+    try:
+        data = decode_access_token(token)
+        request.state.user = data["username"]
+        request.state.role = data["role"]
+    except HTTPException:
+        return RedirectResponse(url="/web/login.html")
+
+    return await call_next(request)
+
 
 @app.post("/login")
 async def login(data: dict):
@@ -289,6 +313,24 @@ async def list_files(request: Request):
     }
 
 
+@app.get("/downloads/available")
+async def available_downloads():
+    files = get_available_downloads()
+    return {
+        "files": files,
+        "count": len(files)
+    }
+
+
+@app.get("/downloads/check/{filename:path}")
+async def check_download(filename: str):
+    exists = check_file_exists(filename)
+    return {
+        "filename": filename,
+        "exists": exists,
+        "download_url": f"/download/{filename}" if exists else None
+    }
+
 @app.get("/debug/all-docs")
 async def debug_all_docs(request: Request):
     role = request.state.role
@@ -310,7 +352,6 @@ async def debug_all_docs(request: Request):
         "total": len(response.objects),
         "files": [obj.properties.get("filename") for obj in response.objects]
     }
-
 
 @app.get("/debug/clear-docs")
 async def clear_docs(request: Request):

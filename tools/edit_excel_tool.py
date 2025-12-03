@@ -14,17 +14,18 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 STORAGE_DIR = Path(os.getenv("FILES_DIR", BASE_DIR / "storage"))
 DOWNLOADS_DIR = Path(os.getenv("DOWNLOADS_DIR", BASE_DIR / "downloads"))
-SERVER_URL = os.getenv("SERVER_URL", "http://172.22.22.73:8000")
+SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
 
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-MAX_FILE_AGE_MINUTES = 5
+MAX_FILE_AGE_MINUTES = 30
 
 
-def _cleanup_old_downloads():
+def cleanup_old_downloads():
     if not DOWNLOADS_DIR.exists():
-        return
+        return 0
 
+    deleted = 0
     now = datetime.now()
     for filepath in DOWNLOADS_DIR.iterdir():
         if filepath.is_file() and filepath.suffix.lower() in ['.xlsx', '.xls']:
@@ -32,9 +33,41 @@ def _cleanup_old_downloads():
             if file_age > timedelta(minutes=MAX_FILE_AGE_MINUTES):
                 try:
                     filepath.unlink()
+                    deleted += 1
                     logger.info(f"Удалён старый файл: {filepath.name}")
                 except Exception as e:
                     logger.error(f"Ошибка удаления {filepath.name}: {e}")
+    return deleted
+
+
+def get_available_downloads() -> List[Dict[str, Any]]:
+    if not DOWNLOADS_DIR.exists():
+        return []
+
+    files = []
+    now = datetime.now()
+    for filepath in DOWNLOADS_DIR.iterdir():
+        if filepath.is_file() and filepath.suffix.lower() in ['.xlsx', '.xls']:
+            mtime = datetime.fromtimestamp(filepath.stat().st_mtime)
+            age_minutes = (now - mtime).total_seconds() / 60
+            remaining_minutes = max(0, MAX_FILE_AGE_MINUTES - age_minutes)
+
+            files.append({
+                "filename": filepath.name,
+                "download_url": f"{SERVER_URL}/download/{filepath.name}",
+                "created": mtime.isoformat(),
+                "age_minutes": round(age_minutes, 1),
+                "remaining_minutes": round(remaining_minutes, 1),
+                "size": filepath.stat().st_size
+            })
+
+    files.sort(key=lambda x: x["created"], reverse=True)
+    return files
+
+
+def check_file_exists(filename: str) -> bool:
+    filepath = DOWNLOADS_DIR / filename
+    return filepath.exists()
 
 
 def _find_source_file(filename: str, role: Optional[str] = None) -> Optional[Path]:
@@ -122,8 +155,6 @@ def edit_excel(
         "operations_applied": 3
     }
     """
-    _cleanup_old_downloads()
-
     source_path = _find_source_file(filename, role)
     if not source_path:
         return {

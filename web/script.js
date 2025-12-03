@@ -4,6 +4,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatContainer = document.getElementById('chat-container');
     const uploadBtn = document.getElementById('uploadBtn');
     const fileInput = document.getElementById('fileInput');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    let currentDownloadFile = null;
+    let downloadCheckInterval = null;
 
     if (!input || !sendBtn || !chatContainer) {
         console.log('Элементы чата не найдены (возможно страница логина)');
@@ -33,10 +37,120 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const data = await res.json();
-            appendChat('Помощник', data.response || 'Ошибка при получении ответа');
+            const response = data.response || 'Ошибка при получении ответа';
+            appendChat('Помощник', response);
+
+            checkForDownloadLink(response);
         } catch (err) {
             appendChat('Система', 'Ошибка при соединении с сервером');
             console.error(err);
+        }
+    }
+
+    function checkForDownloadLink(text) {
+        const patterns = [
+            /\/download\/([^\s"'<>]+\.xlsx?)/gi,
+            /Скачать:\s*\S*\/download\/([^\s"'<>]+\.xlsx?)/gi,
+            /download_url['":\s]+[^\s]*\/download\/([^\s"'<>]+\.xlsx?)/gi
+        ];
+
+        for (const pattern of patterns) {
+            const matches = text.matchAll(pattern);
+            for (const match of matches) {
+                if (match[1]) {
+                    setDownloadFile(match[1]);
+                    return;
+                }
+            }
+        }
+    }
+
+    function setDownloadFile(filename) {
+        currentDownloadFile = filename;
+        updateDownloadButton(true);
+        startDownloadCheck();
+    }
+
+    function updateDownloadButton(active) {
+        if (!downloadBtn) return;
+
+        if (active) {
+            downloadBtn.classList.add('active');
+            downloadBtn.disabled = false;
+            downloadBtn.title = `Скачать: ${currentDownloadFile}`;
+        } else {
+            downloadBtn.classList.remove('active');
+            downloadBtn.disabled = true;
+            downloadBtn.title = 'Нет файла для скачивания';
+            currentDownloadFile = null;
+        }
+    }
+
+    function startDownloadCheck() {
+        if (downloadCheckInterval) {
+            clearInterval(downloadCheckInterval);
+        }
+
+        downloadCheckInterval = setInterval(async () => {
+            if (!currentDownloadFile) {
+                clearInterval(downloadCheckInterval);
+                return;
+            }
+
+            try {
+                const res = await fetch(`/downloads/check/${encodeURIComponent(currentDownloadFile)}`, {
+                    credentials: 'include'
+                });
+                const data = await res.json();
+
+                if (!data.exists) {
+                    updateDownloadButton(false);
+                    clearInterval(downloadCheckInterval);
+                }
+            } catch (err) {
+                console.error('Ошибка проверки файла:', err);
+            }
+        }, 30000);
+    }
+
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', async () => {
+            if (!currentDownloadFile || downloadBtn.disabled) return;
+
+            try {
+                const res = await fetch(`/downloads/check/${encodeURIComponent(currentDownloadFile)}`, {
+                    credentials: 'include'
+                });
+                const data = await res.json();
+
+                if (data.exists) {
+                    window.location.href = `/download/${encodeURIComponent(currentDownloadFile)}`;
+                } else {
+                    updateDownloadButton(false);
+                    alert('Файл больше не доступен');
+                }
+            } catch (err) {
+                console.error('Ошибка скачивания:', err);
+                alert('Ошибка при скачивании файла');
+            }
+        });
+    }
+
+    checkAvailableDownloads();
+
+    async function checkAvailableDownloads() {
+        try {
+            const res = await fetch('/downloads/available', {
+                credentials: 'include'
+            });
+            const data = await res.json();
+
+            if (data.files && data.files.length > 0) {
+                const latestFile = data.files[0];
+                setDownloadFile(latestFile.filename);
+            }
+        } catch (err) {
+            console.error('Ошибка получения списка файлов:', err);
         }
     }
 
@@ -123,14 +237,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         function showTooltip() {
             if (isMobile()) {
-                // На мобильных используем класс
                 innerText.classList.add('active');
             } else {
-                // На ПК используем inline стили
                 innerText.style.visibility = 'visible';
                 innerText.style.opacity = '1';
 
-                // Сбрасываем позицию на дефолтную (слева)
                 innerText.style.right = '100%';
                 innerText.style.left = 'auto';
                 innerText.style.top = '50%';
@@ -140,12 +251,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 innerText.style.marginLeft = '0';
                 innerText.style.marginBottom = '0';
 
-                // Проверяем границы экрана после отрисовки
                 requestAnimationFrame(() => {
                     const rect = innerText.getBoundingClientRect();
                     const viewportHeight = window.innerHeight;
 
-                    // Если выходит слева за экран
                     if (rect.left < 5) {
                         innerText.style.right = 'auto';
                         innerText.style.left = '100%';
@@ -186,7 +295,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // ПК - hover
         inner.addEventListener('mouseenter', () => {
             if (!isMobile()) {
                 showTooltip();
@@ -199,7 +307,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Мобильные - только тап
         inner.addEventListener('click', (e) => {
             if (isMobile()) {
                 e.preventDefault();
@@ -214,7 +321,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Крестик для закрытия
         if (closeBtn) {
             closeBtn.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -224,7 +330,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Закрыть tooltip при клике вне
     document.addEventListener('click', (e) => {
         if (isMobile() && !e.target.closest('.tooltip')) {
             document.querySelectorAll('.inner-tooltiptext').forEach(t => {

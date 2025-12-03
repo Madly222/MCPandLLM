@@ -133,6 +133,30 @@ button:active {
     flex-shrink: 0;
 }
 
+/* ============ DOWNLOAD BUTTON ============ */
+.download-btn {
+    flex-shrink: 0;
+    opacity: 0.4;
+    cursor: not-allowed;
+    transition: opacity 0.3s, background-color 0.3s;
+}
+
+.download-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.download-btn.active {
+    opacity: 1;
+    cursor: pointer;
+    background-color: #2a7a2a;
+    border-color: #1a5a1a;
+}
+
+.download-btn.active:hover {
+    background-color: #3a9a3a;
+}
+
 /* ============ TOOLTIP ============ */
 .tooltip {
     position: relative;

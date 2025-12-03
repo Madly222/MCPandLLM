@@ -22,8 +22,6 @@ from fastapi.responses import RedirectResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(lifespan=lifespan)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -153,7 +151,7 @@ async def lifespan(app):
         except asyncio.CancelledError:
             pass
 
-
+app = FastAPI(lifespan=lifespan)
 
 @app.post("/login")
 async def login(data: dict):

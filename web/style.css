@@ -496,22 +496,3 @@ button:active {
         margin: 4px;
     }
 }
-.download-btn {
-    background-color: #555;
-    color: #000;
-    opacity: 0.4;
-    padding: 8px 12px;
-    margin-left: 8px;
-    border-radius: 6px;
-    border: none;
-    font-size: 18px;
-    cursor: not-allowed;
-    transition: 0.2s;
-}
-
-.download-btn.active {
-    background-color: #fff;
-    color: #000;
-    opacity: 1;
-    cursor: pointer;
-}

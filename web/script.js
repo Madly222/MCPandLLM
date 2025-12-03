@@ -49,8 +49,6 @@ document.addEventListener('DOMContentLoaded', () => {
         msgDiv.innerText = `${role}:\n${text}`;
         chatContainer.appendChild(msgDiv);
         chatContainer.scrollTop = chatContainer.scrollHeight;
-
-        updateDownloadButton();
     }
 
     if (uploadBtn && fileInput) {

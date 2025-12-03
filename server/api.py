@@ -20,6 +20,7 @@ from user.auth import create_access_token, decode_access_token
 from tools.chunking_tool import index_file
 from tools.edit_excel_tool import cleanup_old_downloads
 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,7 @@ async def periodic_task():
     while True:
         try:
             load_storage_files()
-            cleanup_old_downloads()
-            logger.info("periodic_task выполнен")
+            logger.info("load_storage_files выполнен")
         except Exception as e:
             logger.error(f"Ошибка periodic_task: {e}")
         await asyncio.sleep(300)
@@ -183,10 +183,6 @@ async def index(request: Request):
         return FileResponse(index_file_path)
     raise HTTPException(status_code=404, detail="index.html не найден")
 
-@app.get("/has-download")
-async def has_download(request: Request):
-    files = [f.name for f in DOWNLOADS_DIR.iterdir() if f.is_file()]
-    return {"available": len(files) > 0, "files": files}
 
 @app.post("/query")
 async def query(request: Request):

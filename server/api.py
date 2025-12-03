@@ -10,9 +10,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from contextlib import asynccontextmanager
+
 from agent.agent import agent_process
 from vector_store import vector_store
-from tools.upload_tool import save_and_index_file
 from tools.chunking_tool import index_file
 from user.users import verify_user
 from user.auth import create_access_token, decode_access_token
@@ -21,7 +22,7 @@ from fastapi.responses import RedirectResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -118,16 +119,6 @@ def load_storage_files():
             except Exception as e:
                 logger.error(f"[{role}] Ошибка загрузки {file_path.name}: {e}")
 
-@app.on_event("startup")
-async def startup():
-    if not vector_store.is_connected():
-        if vector_store.connect():
-            logger.info("Weaviate подключен")
-        else:
-            logger.warning("Не удалось подключиться к Weaviate")
-
-    asyncio.create_task(periodic_task())
-
 async def periodic_task():
     await asyncio.sleep(300)
 
@@ -138,6 +129,29 @@ async def periodic_task():
         except Exception as e:
             logger.error(f"Ошибка periodic_task: {e}")
         await asyncio.sleep(300)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    # === startup ===
+    if not vector_store.is_connected():
+        if vector_store.connect():
+            logger.info("Weaviate подключен")
+        else:
+            logger.warning("Не удалось подключиться к Weaviate")
+
+    # запускаем фоновую задачу
+    task = asyncio.create_task(periodic_task())
+
+    try:
+        yield   # приложение работает
+    finally:
+        # === shutdown ===
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 

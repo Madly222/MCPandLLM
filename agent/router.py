@@ -12,8 +12,8 @@ from tools.search_tool import perform_search, smart_search
 from tools.edit_excel_tool import edit_excel, get_excel_preview
 from tools.excel_nlu import parse_excel_command
 from tools.multi_file_tool import process_multiple_files
-from tools.file_reader import get_example_files, find_file
-from tools.file_generator import generate_file
+from tools.file_reader_tool import get_example_files, find_file
+from tools.file_generator_tool import generate_file
 from vector_store import vector_store
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,5 @@
 from tools.file_tool import try_handle_file_command, select_file
-from tools.excel_tool import read_excel, read_excel_for_edit, select_excel_file
+from tools.excel_tool import read_excel, read_excel_for_edit
 from tools.search_tool import perform_search, smart_search
 from tools.edit_excel_tool import (
     edit_excel,
@@ -30,7 +30,6 @@ __all__ = [
     "select_file",
     "read_excel",
     "read_excel_for_edit",
-    "select_excel_file",
     "perform_search",
     "smart_search",
     "edit_excel",

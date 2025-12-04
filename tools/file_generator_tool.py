@@ -15,7 +15,7 @@ from docx import Document
 from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-from tools.file_reader import (
+from tools.file_reader_tool import (
     ExtractedContent,
     ExtractedTable,
     ExtractedImage,

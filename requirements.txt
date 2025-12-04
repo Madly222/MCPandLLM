@@ -13,3 +13,10 @@ sentence-transformers==2.2.2
 # pip install torch==2.2.0+cpu torchvision==0.24.1+cpu -f [https://download.pytorch.org/whl/torch_stable.html](https://download.pytorch.org/whl/torch_stable.html)
 anthropic
 jwt
+
+python-docx>=0.8.11
+python-pptx>=0.6.21
+pdfplumber>=0.9.0
+openpyxl>=3.1.0
+
+Pillow>=9.0.0

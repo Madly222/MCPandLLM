@@ -9,7 +9,7 @@ from tools.edit_excel_tool import (
     check_file_exists
 )
 from tools.chunking_tool import index_file
-from tools.file_reader import (
+from tools.file_reader_tool import (
     read_file,
     read_multiple_files,
     find_file,
@@ -18,7 +18,7 @@ from tools.file_reader import (
     ExtractedTable,
     ExtractedImage
 )
-from tools.file_generator import (
+from tools.file_generator_tool import (
     generate_file,
     create_excel,
     create_word,

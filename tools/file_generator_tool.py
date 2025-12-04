@@ -14,14 +14,13 @@ from openpyxl.styles import Font, Alignment, Border, Side
 from docx import Document
 from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
 
 from tools.file_reader import (
     ExtractedContent,
     ExtractedTable,
     ExtractedImage,
     find_file,
-    read_file,
+    extract_content,
     read_multiple_files,
     EXAMPLES_DIR
 )
@@ -67,7 +66,6 @@ def create_excel(
         )
 
         current_row = 1
-        image_col = 1
         all_images = []
 
         for content_idx, content in enumerate(contents):
@@ -177,8 +175,7 @@ def create_word(
         contents: List[ExtractedContent],
         output_name: str = "generated",
         title: Optional[str] = None,
-        include_images: bool = True,
-        include_toc: bool = False
+        include_images: bool = True
 ) -> Dict[str, Any]:
     try:
         doc = Document()
@@ -341,7 +338,9 @@ def _create_excel_from_template(
             "filename": output_filename,
             "download_url": download_url,
             "template_used": template_path.name,
-            "sources": [c.filename for c in contents]
+            "sources": [c.filename for c in contents],
+            "tables_count": sum(len(c.tables) for c in contents),
+            "images_count": sum(len(c.images) for c in contents)
         }
 
     except Exception as e:
@@ -421,7 +420,9 @@ def _create_word_from_template(
             "filename": output_filename,
             "download_url": download_url,
             "template_used": template_path.name,
-            "sources": [c.filename for c in contents]
+            "sources": [c.filename for c in contents],
+            "tables_count": sum(len(c.tables) for c in contents),
+            "images_count": sum(len(c.images) for c in contents)
         }
 
     except Exception as e:

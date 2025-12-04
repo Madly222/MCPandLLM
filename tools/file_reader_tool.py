@@ -77,9 +77,8 @@ def find_file(filename: str, role: Optional[str] = None) -> Optional[Path]:
     return None
 
 
-def read_excel(filepath: Path) -> ExtractedContent:
+def _extract_from_excel(filepath: Path) -> ExtractedContent:
     from openpyxl import load_workbook
-    from openpyxl.drawing.image import Image as XLImage
 
     content = ExtractedContent(
         filename=filepath.name,
@@ -117,16 +116,17 @@ def read_excel(filepath: Path) -> ExtractedContent:
         wb_full = load_workbook(filepath)
         for sheet_name in wb_full.sheetnames:
             ws = wb_full[sheet_name]
-            for image in ws._images:
-                try:
-                    img_data = image._data()
-                    content.images.append(ExtractedImage(
-                        data=img_data,
-                        filename=f"{sheet_name}_image_{len(content.images)}.png",
-                        content_type="image/png"
-                    ))
-                except Exception as e:
-                    logger.warning(f"Ошибка извлечения картинки из Excel: {e}")
+            if hasattr(ws, '_images'):
+                for image in ws._images:
+                    try:
+                        img_data = image._data()
+                        content.images.append(ExtractedImage(
+                            data=img_data,
+                            filename=f"{sheet_name}_image_{len(content.images)}.png",
+                            content_type="image/png"
+                        ))
+                    except Exception as e:
+                        logger.warning(f"Ошибка извлечения картинки из Excel: {e}")
 
         wb.close()
         wb_full.close()
@@ -144,10 +144,8 @@ def read_excel(filepath: Path) -> ExtractedContent:
     return content
 
 
-def read_docx(filepath: Path) -> ExtractedContent:
+def _extract_from_docx(filepath: Path) -> ExtractedContent:
     from docx import Document
-    from docx.table import Table
-    from docx.oxml.ns import qn
 
     content = ExtractedContent(
         filename=filepath.name,
@@ -216,7 +214,7 @@ def read_docx(filepath: Path) -> ExtractedContent:
     return content
 
 
-def read_pdf(filepath: Path) -> ExtractedContent:
+def _extract_from_pdf(filepath: Path) -> ExtractedContent:
     import pdfplumber
 
     content = ExtractedContent(
@@ -243,24 +241,25 @@ def read_pdf(filepath: Path) -> ExtractedContent:
                             rows=rows
                         ))
 
-                for img in page.images:
-                    try:
-                        x0, y0, x1, y1 = img['x0'], img['top'], img['x1'], img['bottom']
-                        cropped = page.within_bbox((x0, y0, x1, y1))
-                        img_obj = cropped.to_image(resolution=150)
+                if hasattr(page, 'images') and page.images:
+                    for img in page.images:
+                        try:
+                            x0, y0, x1, y1 = img['x0'], img['top'], img['x1'], img['bottom']
+                            cropped = page.within_bbox((x0, y0, x1, y1))
+                            img_obj = cropped.to_image(resolution=150)
 
-                        img_bytes = BytesIO()
-                        img_obj.save(img_bytes, format='PNG')
+                            img_bytes = BytesIO()
+                            img_obj.save(img_bytes, format='PNG')
 
-                        content.images.append(ExtractedImage(
-                            data=img_bytes.getvalue(),
-                            filename=f"page{page_num}_image_{len(content.images)}.png",
-                            content_type="image/png",
-                            width=int(x1 - x0),
-                            height=int(y1 - y0)
-                        ))
-                    except Exception as e:
-                        logger.warning(f"Ошибка извлечения картинки из PDF: {e}")
+                            content.images.append(ExtractedImage(
+                                data=img_bytes.getvalue(),
+                                filename=f"page{page_num}_image_{len(content.images)}.png",
+                                content_type="image/png",
+                                width=int(x1 - x0),
+                                height=int(y1 - y0)
+                            ))
+                        except Exception as e:
+                            logger.warning(f"Ошибка извлечения картинки из PDF: {e}")
 
             content.text = "\n\n".join(all_text)
 
@@ -277,9 +276,8 @@ def read_pdf(filepath: Path) -> ExtractedContent:
     return content
 
 
-def read_pptx(filepath: Path) -> ExtractedContent:
+def _extract_from_pptx(filepath: Path) -> ExtractedContent:
     from pptx import Presentation
-    from pptx.util import Inches
 
     content = ExtractedContent(
         filename=filepath.name,
@@ -344,19 +342,19 @@ def read_pptx(filepath: Path) -> ExtractedContent:
     return content
 
 
-def read_file(filepath: Path) -> ExtractedContent:
+def extract_content(filepath: Path) -> ExtractedContent:
     suffix = filepath.suffix.lower()
 
-    readers = {
-        '.xlsx': read_excel,
-        '.xls': read_excel,
-        '.docx': read_docx,
-        '.pdf': read_pdf,
-        '.pptx': read_pptx,
+    extractors = {
+        '.xlsx': _extract_from_excel,
+        '.xls': _extract_from_excel,
+        '.docx': _extract_from_docx,
+        '.pdf': _extract_from_pdf,
+        '.pptx': _extract_from_pptx,
     }
 
-    reader = readers.get(suffix)
-    if not reader:
+    extractor = extractors.get(suffix)
+    if not extractor:
         content = ExtractedContent(
             filename=filepath.name,
             file_type="text"
@@ -367,7 +365,7 @@ def read_file(filepath: Path) -> ExtractedContent:
             content.text = filepath.read_text(encoding='latin-1')
         return content
 
-    return reader(filepath)
+    return extractor(filepath)
 
 
 def read_multiple_files(filenames: List[str], role: Optional[str] = None) -> List[ExtractedContent]:
@@ -377,7 +375,7 @@ def read_multiple_files(filenames: List[str], role: Optional[str] = None) -> Lis
         filepath = find_file(filename, role)
         if filepath:
             try:
-                content = read_file(filepath)
+                content = extract_content(filepath)
                 results.append(content)
                 logger.info(f"Прочитан файл: {filename} ({content.file_type})")
             except Exception as e:

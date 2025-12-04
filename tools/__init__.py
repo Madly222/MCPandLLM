@@ -10,7 +10,7 @@ from tools.edit_excel_tool import (
 )
 from tools.chunking_tool import index_file
 from tools.file_reader_tool import (
-    read_file,
+    extract_content,
     read_multiple_files,
     find_file,
     get_example_files,
@@ -39,7 +39,7 @@ __all__ = [
     "get_available_downloads",
     "check_file_exists",
     "index_file",
-    "read_file",
+    "extract_content",
     "read_multiple_files",
     "find_file",
     "get_example_files",

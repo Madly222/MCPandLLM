@@ -274,6 +274,175 @@ def _get_edit_instruction(text: str, filename: str) -> str:
     return text_clean
 
 
+def _format_content_for_llm(content) -> str:
+    parts = []
+
+    if content.text:
+        text_preview = content.text[:2000]
+        if len(content.text) > 2000:
+            text_preview += "\n... (текст обрезан)"
+        parts.append(f"Текст:\n{text_preview}")
+
+    for i, table in enumerate(content.tables):
+        table_str = f"\nТаблица {i + 1}"
+        if table.sheet_name:
+            table_str += f" (лист: {table.sheet_name})"
+        table_str += ":\n"
+
+        if table.headers:
+            table_str += "| " + " | ".join(str(h) for h in table.headers) + " |\n"
+            table_str += "| " + " | ".join(["---"] * len(table.headers)) + " |\n"
+
+        for row in table.rows[:50]:
+            table_str += "| " + " | ".join(str(cell) for cell in row) + " |\n"
+
+        if len(table.rows) > 50:
+            table_str += f"... ещё {len(table.rows) - 50} строк\n"
+
+        parts.append(table_str)
+
+    return "\n".join(parts) if parts else "(пустой файл)"
+
+
+def _create_file_from_llm_json(data: dict, output_format: str, output_name: str, sources: list, template: str) -> dict:
+    from datetime import datetime
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Border, Side, Alignment
+    from docx import Document
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        sheets = data.get("sheets", [])
+        title = data.get("title", "")
+
+        if output_format in ['xlsx', 'excel', 'xls']:
+            wb = Workbook()
+
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            header_font = Font(bold=True)
+
+            for sheet_idx, sheet_data in enumerate(sheets):
+                if sheet_idx == 0:
+                    ws = wb.active
+                    ws.title = sheet_data.get("name", "Лист1")[:31]
+                else:
+                    ws = wb.create_sheet(title=sheet_data.get("name", f"Лист{sheet_idx + 1}")[:31])
+
+                headers = sheet_data.get("headers", [])
+                rows = sheet_data.get("rows", [])
+
+                current_row = 1
+
+                if headers:
+                    for col_idx, header in enumerate(headers, 1):
+                        cell = ws.cell(row=current_row, column=col_idx, value=header)
+                        cell.font = header_font
+                        cell.border = thin_border
+                        cell.alignment = Alignment(horizontal='center')
+                    current_row += 1
+
+                for row_data in rows:
+                    for col_idx, value in enumerate(row_data, 1):
+                        cell = ws.cell(row=current_row, column=col_idx, value=value)
+                        cell.border = thin_border
+                    current_row += 1
+
+                for col in ws.columns:
+                    max_length = 0
+                    column = col[0].column_letter
+                    for cell in col:
+                        try:
+                            if cell.value:
+                                max_length = max(max_length, len(str(cell.value)))
+                        except:
+                            pass
+                    ws.column_dimensions[column].width = min(max_length + 2, 50)
+
+            filename = f"{output_name}_{timestamp}.xlsx"
+            filepath = STORAGE_DIR.parent / "downloads" / filename
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+
+            wb.save(filepath)
+            wb.close()
+
+            download_url = f"{os.getenv('SERVER_URL', 'http://localhost:8000')}/download/{filename}"
+
+            return {
+                "success": True,
+                "filename": filename,
+                "download_url": download_url,
+                "sheets_count": len(sheets)
+            }
+
+        elif output_format in ['docx', 'word', 'doc']:
+            doc = Document()
+
+            if title:
+                heading = doc.add_heading(title, level=0)
+                heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            for sheet_data in sheets:
+                sheet_name = sheet_data.get("name", "")
+                if sheet_name:
+                    doc.add_heading(sheet_name, level=1)
+
+                headers = sheet_data.get("headers", [])
+                rows = sheet_data.get("rows", [])
+
+                if headers or rows:
+                    num_cols = len(headers) if headers else len(rows[0]) if rows else 0
+                    num_rows = (1 if headers else 0) + len(rows)
+
+                    if num_cols > 0 and num_rows > 0:
+                        table = doc.add_table(rows=num_rows, cols=num_cols)
+                        table.style = 'Table Grid'
+
+                        if headers:
+                            for idx, header in enumerate(headers):
+                                cell = table.rows[0].cells[idx]
+                                cell.text = str(header)
+                                for p in cell.paragraphs:
+                                    for run in p.runs:
+                                        run.bold = True
+
+                        start_row = 1 if headers else 0
+                        for row_idx, row_data in enumerate(rows):
+                            for col_idx, value in enumerate(row_data):
+                                if col_idx < num_cols:
+                                    table.rows[start_row + row_idx].cells[col_idx].text = str(value)
+
+                        doc.add_paragraph()
+
+            filename = f"{output_name}_{timestamp}.docx"
+            filepath = STORAGE_DIR.parent / "downloads" / filename
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+
+            doc.save(filepath)
+
+            download_url = f"{os.getenv('SERVER_URL', 'http://localhost:8000')}/download/{filename}"
+
+            return {
+                "success": True,
+                "filename": filename,
+                "download_url": download_url,
+                "sheets_count": len(sheets)
+            }
+        else:
+            return {"success": False, "error": f"Неподдерживаемый формат: {output_format}"}
+
+    except Exception as e:
+        logger.error(f"Ошибка создания файла из JSON: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
 async def route_message(messages: list, role: str):
     last_user_msg = messages[-1]["content"]
     state = memory.get_state(role) or {}
@@ -311,6 +480,42 @@ async def route_message(messages: list, role: str):
         else:
             return "Файл не найден. Укажите точное имя файла.", messages
 
+    gen_match = re.search(
+        r'```json\s*(\{[\s\S]*?"sheets"[\s\S]*?\})\s*```',
+        last_user_msg,
+        re.I
+    )
+    if gen_match and state.get("pending_file_generation"):
+        try:
+            gen_data = json.loads(gen_match.group(1))
+            pending = state.get("pending_file_generation", {})
+
+            result = _create_file_from_llm_json(
+                gen_data,
+                pending.get("output_format", "xlsx"),
+                pending.get("output_name", "generated"),
+                pending.get("sources", []),
+                pending.get("template")
+            )
+
+            state["pending_file_generation"] = None
+            memory.set_state(role, state)
+
+            if result.get("success"):
+                response = f"✅ Файл создан: {result['filename']}\n\n"
+                response += f"📁 Источники: {', '.join(pending.get('sources', []))}\n"
+                response += f"📋 По шаблону: {pending.get('template')}\n"
+                response += f"📊 Таблиц: {result.get('sheets_count', 0)}\n\n"
+                response += f"🔗 Скачать: {result['download_url']}"
+                return response, messages
+            else:
+                return f"❌ Ошибка создания файла: {result.get('error')}", messages
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Ошибка парсинга JSON генерации: {e}")
+            state["pending_file_generation"] = None
+            memory.set_state(role, state)
+
     if _is_generate_command(last_user_msg):
         logger.info("Router: обнаружена команда генерации файла")
 
@@ -341,6 +546,76 @@ async def route_message(messages: list, role: str):
         if not output_name:
             output_name = "combined"
 
+        if template:
+            from tools.file_reader_tool import extract_content, read_multiple_files
+
+            template_path = find_file(template, role)
+            if not template_path:
+                return f"❌ Шаблон не найден: {template}", messages
+
+            template_content = extract_content(template_path)
+            source_contents = read_multiple_files(source_files, role)
+
+            if not source_contents:
+                return "❌ Не удалось прочитать исходные файлы", messages
+
+            template_preview = _format_content_for_llm(template_content)
+            sources_preview = "\n\n---\n\n".join([
+                f"ФАЙЛ: {c.filename}\n{_format_content_for_llm(c)}"
+                for c in source_contents
+            ])
+
+            context = f"""ЗАДАЧА: Создать файл по структуре шаблона, используя данные из исходных файлов.
+
+ШАБЛОН ({template}):
+{template_preview}
+
+ИСХОДНЫЕ ДАННЫЕ:
+{sources_preview}
+
+---
+
+Проанализируй структуру шаблона и данные из исходных файлов.
+Создай JSON который соответствует структуре шаблона, но с данными из исходных файлов.
+
+Формат ответа - ТОЛЬКО JSON:
+```json
+{{
+  "output_format": "{output_format}",
+  "output_name": "{output_name}",
+  "title": "Заголовок документа",
+  "sheets": [
+    {{
+      "name": "Название листа",
+      "headers": ["Колонка1", "Колонка2", ...],
+      "rows": [
+        ["значение1", "значение2", ...],
+        ...
+      ]
+    }}
+  ]
+}}
+```
+
+Важно:
+- Структура должна ТОЧНО соответствовать шаблону
+- Данные берутся из исходных файлов
+- Объедини похожие данные из разных файлов
+- Если в шаблоне несколько разделов (например Материалы и Работы) - сохрани эту структуру
+"""
+            messages.append({"role": "user", "content": context})
+
+            state["pending_file_generation"] = {
+                "output_format": output_format,
+                "output_name": output_name,
+                "sources": [c.filename for c in source_contents],
+                "template": template
+            }
+            memory.set_state(role, state)
+
+            logger.info(f"Router: генерация по шаблону, отправляем в LLM")
+            return None, messages
+
         title_match = re.search(r'(?:с названием|заголовок|title)\s+["\']?([^"\']+)["\']?', last_user_msg, re.I)
         title = title_match.group(1) if title_match else None
 
@@ -351,7 +626,7 @@ async def route_message(messages: list, role: str):
             output_format=output_format,
             output_name=output_name,
             title=title,
-            template_name=template,
+            template_name=None,
             include_images=include_images,
             role=role
         )
@@ -359,8 +634,6 @@ async def route_message(messages: list, role: str):
         if result.get("success"):
             response = f"✅ Файл создан: {result['filename']}\n\n"
             response += f"📁 Источники: {', '.join(result.get('sources', []))}\n"
-            if result.get('template_used'):
-                response += f"📋 Шаблон: {result['template_used']}\n"
             response += f"📊 Таблиц: {result.get('tables_count', 0)}, "
             response += f"Изображений: {result.get('images_count', 0)}\n\n"
             response += f"🔗 Скачать: {result['download_url']}"

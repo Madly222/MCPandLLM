@@ -12,8 +12,18 @@ from tools.search_tool import perform_search, smart_search
 from tools.edit_excel_tool import edit_excel, get_excel_preview
 from tools.excel_nlu import parse_excel_command
 from tools.multi_file_tool import process_multiple_files
-from tools.file_reader_tool import get_example_files, find_file
-from tools.file_generator_tool import generate_file
+from tools.file_reader_tool import (
+    get_example_files, find_file, extract_content,
+    read_multiple_files, ExtractedContent
+)
+from tools.file_generator_tool import (
+    generate_file, parse_llm_json, build_from_json
+)
+from tools.template_analyzer import analyze_template, format_schema_for_llm
+from tools.data_mapper import (
+    map_columns, map_multiple_sources,
+    extract_mapped_data, format_mapping_for_llm
+)
 from vector_store import vector_store
 
 logger = logging.getLogger(__name__)
@@ -27,52 +37,30 @@ def get_role_files_dir(role: str) -> Path:
 
 
 EDIT_TRIGGERS = [
-    r"добавь строку",
-    r"добавь колонку",
-    r"удали строку",
-    r"удали колонку",
-    r"измени ячейку",
-    r"поменяй ячейку",
-    r"вставь строку",
-    r"новая строка",
-    r"новая колонка",
-    r"отредактируй",
-    r"редактируй",
-    r"измени в файле",
-    r"измени файл",
-    r"обнови файл",
-    r"удали.*работ",
-    r"удали.*строк",
-    r"добавь.*в файл",
-    r"добавь.*в таблиц",
+    r"добавь строку", r"добавь колонку", r"удали строку", r"удали колонку",
+    r"измени ячейку", r"поменяй ячейку", r"вставь строку", r"новая строка",
+    r"новая колонка", r"отредактируй", r"редактируй", r"измени в файле",
+    r"измени файл", r"обнови файл", r"удали.*работ", r"удали.*строк",
+    r"добавь.*в файл", r"добавь.*в таблиц",
 ]
 
 GENERATE_TRIGGERS = [
-    r"создай.*из.*файл",
-    r"сделай.*из.*файл",
-    r"объедини.*файл",
-    r"собери.*из",
-    r"сгенерируй.*из",
-    r"создай.*объединив",
-    r"сделай.*объединив",
-    r"из файла.*и.*файла.*создай",
-    r"из файла.*и.*файла.*сделай",
-    r"по примеру.*создай",
-    r"по шаблону.*создай",
-    r"как в примере",
-    r"как в examples",
-    r"используя.*шаблон",
-    r"создай.*excel",
-    r"создай.*word",
-    r"создай.*xlsx",
-    r"создай.*docx",
-    r"сделай.*отчёт.*из",
-    r"сделай.*отчет.*из",
-    r"создай.*отчёт.*из",
-    r"создай.*отчет.*из",
-    r"создай новый",
-    r"сделай новый",
-    r"новый файл из",
+    r"создай.*из.*файл", r"сделай.*из.*файл", r"объедини.*файл",
+    r"собери.*из", r"сгенерируй.*из", r"создай.*объединив",
+    r"сделай.*объединив", r"из файла.*и.*файла.*создай",
+    r"из файла.*и.*файла.*сделай", r"по примеру.*создай",
+    r"по шаблону.*создай", r"как в примере", r"как в examples",
+    r"используя.*шаблон", r"создай.*excel", r"создай.*word",
+    r"создай.*xlsx", r"создай.*docx", r"сделай.*отчёт.*из",
+    r"сделай.*отчет.*из", r"создай.*отчёт.*из", r"создай.*отчет.*из",
+    r"создай новый", r"сделай новый", r"новый файл из",
+    r"по структуре", r"такой же как", r"аналогично",
+]
+
+TEMPLATE_KEYWORDS = [
+    "по примеру", "по шаблону", "как в", "по структуре",
+    "такой же как", "аналогично", "используя шаблон",
+    "по образцу", "скопируй структуру"
 ]
 
 
@@ -92,189 +80,99 @@ def _is_generate_command(text: str) -> bool:
     return False
 
 
-def _extract_files_from_generate_command(text: str, role: str) -> Tuple[
-    List[str], Optional[str], Optional[str], Optional[str]]:
-    source_files = []
-    output_format = None
-    output_name = None
-    template = None
-
+def _is_template_command(text: str) -> bool:
     text_lower = text.lower()
+    return any(kw in text_lower for kw in TEMPLATE_KEYWORDS)
 
-    if 'excel' in text_lower or 'xlsx' in text_lower or 'таблиц' in text_lower:
-        output_format = 'xlsx'
-    elif 'word' in text_lower or 'docx' in text_lower or 'документ' in text_lower:
-        output_format = 'docx'
-    else:
-        output_format = 'xlsx'
 
-    template_match = re.search(r'(?:по примеру|по шаблону|как в|используя шаблон)\s+["\']?([^\s"\']+)["\']?', text,
-                               re.I)
-    if template_match:
-        template = template_match.group(1)
-
-    examples_match = re.search(r'(?:из|из папки)\s+examples?\s*[/\\]?\s*([^\s,]+)', text, re.I)
-    if examples_match:
-        template = examples_match.group(1)
-
-    output_match = re.search(r'(?:назови|сохрани как|имя файла)\s+["\']?([a-zA-Zа-яА-Я0-9_\-]+)["\']?', text, re.I)
-    if output_match:
-        output_name = output_match.group(1)
-
-    file_patterns = [
-        r'из\s+(?:файлов?\s+)?["\']?([^\s"\']+\.(?:xlsx?|docx|pdf|pptx))["\']?',
-        r'(?:файл[аы]?\s+)?["\']?([^\s"\']+\.(?:xlsx?|docx|pdf|pptx))["\']?',
-        r'и\s+["\']?([^\s"\']+\.(?:xlsx?|docx|pdf|pptx))["\']?',
+def _extract_template_name(text: str, role: str) -> Optional[str]:
+    patterns = [
+        r'(?:по примеру|по шаблону|как в|по образцу|по структуре)\s+["\']?([^\s"\']+\.\w+)["\']?',
+        r'(?:по примеру|по шаблону|как в|по образцу|по структуре)\s+["\']?([^\s"\']+)["\']?',
+        r'(?:файл[а]?|шаблон[а]?)\s+["\']?([^\s"\']+\.\w+)["\']?',
     ]
 
-    found_files = set()
-    for pattern in file_patterns:
-        matches = re.findall(pattern, text, re.I)
-        for match in matches:
-            if match and match != template:
-                found_files.add(match)
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            potential = match.group(1)
+            if find_file(potential, role):
+                return potential
+            if find_file(potential + ".xlsx", role):
+                return potential + ".xlsx"
 
     role_dir = STORAGE_DIR / role
     if role_dir.exists():
         for filepath in role_dir.iterdir():
             if filepath.is_file():
                 name_lower = filepath.stem.lower()
-                if name_lower in text_lower or filepath.name.lower() in text_lower:
-                    if filepath.suffix.lower() in ['.xlsx', '.xls', '.docx', '.pdf', '.pptx']:
-                        found_files.add(filepath.name)
+                if name_lower in text.lower() or filepath.name.lower() in text.lower():
+                    return filepath.name
 
-    source_files = list(found_files)
-
-    return source_files, output_format, output_name, template
-
-
-def _extract_filename_from_text(text: str, role: str) -> Optional[str]:
-    text_lower = text.lower()
-    role_dir = get_role_files_dir(role)
-
-    if not role_dir.exists():
-        return None
-
-    best_match = None
-    best_match_len = 0
-
-    for filepath in role_dir.iterdir():
-        if filepath.suffix.lower() in ['.xlsx', '.xls']:
-            filename = filepath.name
-            filename_lower = filename.lower()
-
-            if filename_lower in text_lower:
-                if len(filename) > best_match_len:
-                    best_match = filename
-                    best_match_len = len(filename)
-
-            stem_lower = filepath.stem.lower()
-            if stem_lower in text_lower:
-                if len(filepath.stem) > best_match_len:
-                    best_match = filename
-                    best_match_len = len(filepath.stem)
-
-    if best_match:
-        logger.info(f"Найден файл по точному совпадению: {best_match}")
-        return best_match
-
-    xlsx_match = re.search(r'(\S+\.xlsx?)', text, re.I)
-    if xlsx_match:
-        potential_name = xlsx_match.group(1)
-        found = _find_file_by_pattern(potential_name, role)
-        if found:
-            logger.info(f"Найден файл по паттерну: {found}")
-            return found
-
-    keywords = []
-    for word in text.split():
-        word_clean = re.sub(r'[^\w]', '', word.lower())
-        if word_clean and len(word_clean) >= 3:
-            if word_clean not in ['отредактируй', 'редактируй', 'измени', 'удали',
-                                  'добавь', 'файл', 'таблицу', 'таблица', 'excel',
-                                  'строку', 'строки', 'колонку', 'ячейку', 'работы',
-                                  'все', 'выполненые', 'выполненные', 'невыполненные']:
-                keywords.append(word_clean)
-
-    if keywords:
-        best_file = None
-        best_score = 0
-
-        for filepath in role_dir.iterdir():
-            if filepath.suffix.lower() in ['.xlsx', '.xls']:
-                stem_lower = filepath.stem.lower()
-                score = sum(1 for kw in keywords if kw in stem_lower)
-                if score > best_score:
-                    best_score = score
-                    best_file = filepath.name
-
-        if best_file:
-            logger.info(f"Найден файл по ключевым словам ({best_score} совпадений): {best_file}")
-            return best_file
+    examples_dir = STORAGE_DIR / "examples"
+    if examples_dir.exists():
+        for filepath in examples_dir.iterdir():
+            if filepath.is_file():
+                name_lower = filepath.stem.lower()
+                if name_lower in text.lower() or filepath.name.lower() in text.lower():
+                    return filepath.name
 
     return None
 
 
-def _find_file_by_pattern(pattern: str, role: str) -> Optional[str]:
-    if not pattern:
-        return None
+def _extract_source_files(text: str, role: str, exclude: Optional[str] = None) -> List[str]:
+    found_files = set()
 
-    role_dir = get_role_files_dir(role)
-    if not role_dir.exists():
-        return None
-
-    pattern_clean = pattern.lower().replace('.xlsx', '').replace('.xls', '')
-    pattern_clean = re.sub(r'[^\w]', '', pattern_clean)
-
-    best_match = None
-    best_score = 0
-
-    for filepath in role_dir.iterdir():
-        if filepath.suffix.lower() in ['.xlsx', '.xls']:
-            stem_clean = re.sub(r'[^\w]', '', filepath.stem.lower())
-
-            if pattern_clean == stem_clean:
-                return filepath.name
-
-            if pattern_clean in stem_clean:
-                score = len(pattern_clean) / len(stem_clean)
-                if score > best_score:
-                    best_score = score
-                    best_match = filepath.name
-
-    return best_match
-
-
-def _is_complex_edit_command(text: str) -> bool:
-    complex_patterns = [
-        r"удали.*все",
-        r"удали.*выполнен",
-        r"удали.*невыполнен",
-        r"удали.*где",
-        r"удали.*которые",
-        r"измени.*все",
-        r"замени.*все",
-        r"пересчитай",
-        r"обнови.*итог",
+    file_patterns = [
+        r'из\s+(?:файлов?\s+)?["\']?([^\s"\']+\.(?:xlsx?|docx|pdf|pptx))["\']?',
+        r'(?:файл[аы]?\s+)?["\']?([^\s"\']+\.(?:xlsx?|docx|pdf|pptx))["\']?',
+        r'и\s+["\']?([^\s"\']+\.(?:xlsx?|docx|pdf|pptx))["\']?',
+        r'данные\s+из\s+["\']?([^\s"\']+)["\']?',
     ]
 
+    for pattern in file_patterns:
+        matches = re.findall(pattern, text, re.I)
+        for match in matches:
+            if match and match != exclude:
+                found_files.add(match)
+
+    role_dir = STORAGE_DIR / role
+    if role_dir.exists():
+        for filepath in role_dir.iterdir():
+            if filepath.is_file() and filepath.name != exclude:
+                name_lower = filepath.stem.lower()
+                if name_lower in text.lower() or filepath.name.lower() in text.lower():
+                    if filepath.suffix.lower() in ['.xlsx', '.xls', '.docx', '.pdf', '.pptx']:
+                        found_files.add(filepath.name)
+
+    if exclude:
+        found_files.discard(exclude)
+
+    return list(found_files)
+
+
+def _extract_output_params(text: str) -> Tuple[str, Optional[str]]:
+    output_format = "xlsx"
+    output_name = None
+
     text_lower = text.lower()
-    for pattern in complex_patterns:
-        if re.search(pattern, text_lower):
-            return True
-    return False
+
+    if 'word' in text_lower or 'docx' in text_lower or 'документ' in text_lower:
+        output_format = "docx"
+    elif 'excel' in text_lower or 'xlsx' in text_lower or 'таблиц' in text_lower:
+        output_format = "xlsx"
+
+    name_match = re.search(
+        r'(?:назови|сохрани как|имя файла|название)\s+["\']?([a-zA-Zа-яА-Я0-9_\-]+)["\']?',
+        text, re.I
+    )
+    if name_match:
+        output_name = name_match.group(1)
+
+    return output_format, output_name
 
 
-def _get_edit_instruction(text: str, filename: str) -> str:
-    text_clean = text.lower()
-    text_clean = re.sub(r'отредактируй\s*', '', text_clean)
-    text_clean = re.sub(r'редактируй\s*', '', text_clean)
-    text_clean = re.sub(r'[^\s]+\.xlsx?', '', text_clean, flags=re.I)
-    text_clean = text_clean.strip()
-    return text_clean
-
-
-def _format_content_for_llm(content) -> str:
+def _format_content_for_llm(content: ExtractedContent) -> str:
     parts = []
 
     if content.text:
@@ -304,150 +202,64 @@ def _format_content_for_llm(content) -> str:
     return "\n".join(parts) if parts else "(пустой файл)"
 
 
-def _create_file_from_llm_json(data: dict, output_format: str, output_name: str, sources: list, template: str) -> dict:
-    from datetime import datetime
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Border, Side, Alignment
-    from docx import Document
-    from docx.shared import Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
+def _extract_filename_from_text(text: str, role: str) -> Optional[str]:
+    text_lower = text.lower()
+    role_dir = get_role_files_dir(role)
 
-    try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if not role_dir.exists():
+        return None
 
-        sheets = data.get("sheets", [])
-        title = data.get("title", "")
+    best_match = None
+    best_match_len = 0
 
-        if output_format in ['xlsx', 'excel', 'xls']:
-            wb = Workbook()
+    for filepath in role_dir.iterdir():
+        if filepath.suffix.lower() in ['.xlsx', '.xls']:
+            filename = filepath.name
+            filename_lower = filename.lower()
 
-            thin_border = Border(
-                left=Side(style='thin'),
-                right=Side(style='thin'),
-                top=Side(style='thin'),
-                bottom=Side(style='thin')
-            )
-            header_font = Font(bold=True)
+            if filename_lower in text_lower:
+                if len(filename) > best_match_len:
+                    best_match = filename
+                    best_match_len = len(filename)
 
-            for sheet_idx, sheet_data in enumerate(sheets):
-                if sheet_idx == 0:
-                    ws = wb.active
-                    ws.title = sheet_data.get("name", "Лист1")[:31]
-                else:
-                    ws = wb.create_sheet(title=sheet_data.get("name", f"Лист{sheet_idx + 1}")[:31])
+            stem_lower = filepath.stem.lower()
+            if stem_lower in text_lower:
+                if len(filepath.stem) > best_match_len:
+                    best_match = filename
+                    best_match_len = len(filepath.stem)
 
-                headers = sheet_data.get("headers", [])
-                rows = sheet_data.get("rows", [])
+    if best_match:
+        return best_match
 
-                current_row = 1
+    xlsx_match = re.search(r'(\S+\.xlsx?)', text, re.I)
+    if xlsx_match:
+        potential_name = xlsx_match.group(1)
+        for filepath in role_dir.iterdir():
+            if filepath.suffix.lower() in ['.xlsx', '.xls']:
+                if potential_name.lower() in filepath.name.lower():
+                    return filepath.name
 
-                if headers:
-                    for col_idx, header in enumerate(headers, 1):
-                        cell = ws.cell(row=current_row, column=col_idx, value=header)
-                        cell.font = header_font
-                        cell.border = thin_border
-                        cell.alignment = Alignment(horizontal='center')
-                    current_row += 1
+    return None
 
-                for row_data in rows:
-                    for col_idx, value in enumerate(row_data, 1):
-                        cell = ws.cell(row=current_row, column=col_idx, value=value)
-                        cell.border = thin_border
-                    current_row += 1
 
-                for col in ws.columns:
-                    max_length = 0
-                    column = col[0].column_letter
-                    for cell in col:
-                        try:
-                            if cell.value:
-                                max_length = max(max_length, len(str(cell.value)))
-                        except:
-                            pass
-                    ws.column_dimensions[column].width = min(max_length + 2, 50)
-
-            filename = f"{output_name}_{timestamp}.xlsx"
-            filepath = STORAGE_DIR.parent / "downloads" / filename
-            filepath.parent.mkdir(parents=True, exist_ok=True)
-
-            wb.save(filepath)
-            wb.close()
-
-            download_url = f"{os.getenv('SERVER_URL', 'http://localhost:8000')}/download/{filename}"
-
-            return {
-                "success": True,
-                "filename": filename,
-                "download_url": download_url,
-                "sheets_count": len(sheets)
-            }
-
-        elif output_format in ['docx', 'word', 'doc']:
-            doc = Document()
-
-            if title:
-                heading = doc.add_heading(title, level=0)
-                heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-            for sheet_data in sheets:
-                sheet_name = sheet_data.get("name", "")
-                if sheet_name:
-                    doc.add_heading(sheet_name, level=1)
-
-                headers = sheet_data.get("headers", [])
-                rows = sheet_data.get("rows", [])
-
-                if headers or rows:
-                    num_cols = len(headers) if headers else len(rows[0]) if rows else 0
-                    num_rows = (1 if headers else 0) + len(rows)
-
-                    if num_cols > 0 and num_rows > 0:
-                        table = doc.add_table(rows=num_rows, cols=num_cols)
-                        table.style = 'Table Grid'
-
-                        if headers:
-                            for idx, header in enumerate(headers):
-                                cell = table.rows[0].cells[idx]
-                                cell.text = str(header)
-                                for p in cell.paragraphs:
-                                    for run in p.runs:
-                                        run.bold = True
-
-                        start_row = 1 if headers else 0
-                        for row_idx, row_data in enumerate(rows):
-                            for col_idx, value in enumerate(row_data):
-                                if col_idx < num_cols:
-                                    table.rows[start_row + row_idx].cells[col_idx].text = str(value)
-
-                        doc.add_paragraph()
-
-            filename = f"{output_name}_{timestamp}.docx"
-            filepath = STORAGE_DIR.parent / "downloads" / filename
-            filepath.parent.mkdir(parents=True, exist_ok=True)
-
-            doc.save(filepath)
-
-            download_url = f"{os.getenv('SERVER_URL', 'http://localhost:8000')}/download/{filename}"
-
-            return {
-                "success": True,
-                "filename": filename,
-                "download_url": download_url,
-                "sheets_count": len(sheets)
-            }
-        else:
-            return {"success": False, "error": f"Неподдерживаемый формат: {output_format}"}
-
-    except Exception as e:
-        logger.error(f"Ошибка создания файла из JSON: {e}", exc_info=True)
-        return {"success": False, "error": str(e)}
+def _is_complex_edit_command(text: str) -> bool:
+    complex_patterns = [
+        r"удали.*все", r"удали.*выполнен", r"удали.*невыполнен",
+        r"удали.*где", r"удали.*которые", r"измени.*все",
+        r"замени.*все", r"пересчитай", r"обнови.*итог",
+    ]
+    text_lower = text.lower()
+    for pattern in complex_patterns:
+        if re.search(pattern, text_lower):
+            return True
+    return False
 
 
 async def route_message(messages: list, role: str):
     last_user_msg = messages[-1]["content"]
     state = memory.get_state(role) or {}
 
-    logger.info(f"Router: обрабатываем '{last_user_msg[:50]}...'")
+    logger.info(f"Router: '{last_user_msg[:50]}...'")
 
     if state.get("awaiting_file_choice"):
         if state.get("awaiting_excel_choice"):
@@ -465,7 +277,7 @@ async def route_message(messages: list, role: str):
 
     if state.get("awaiting_file_for_edit"):
         operations = state.get("pending_operations", [])
-        filename = _find_file_by_pattern(last_user_msg, role)
+        filename = _extract_filename_from_text(last_user_msg, role)
 
         if filename:
             result = edit_excel(filename, operations, role=role)
@@ -480,171 +292,193 @@ async def route_message(messages: list, role: str):
         else:
             return "Файл не найден. Укажите точное имя файла.", messages
 
-    gen_match = re.search(
-        r'```json\s*(\{[\s\S]*?"sheets"[\s\S]*?\})\s*```',
-        last_user_msg,
-        re.I
-    )
-    if gen_match and state.get("pending_file_generation"):
-        try:
-            gen_data = json.loads(gen_match.group(1))
-            pending = state.get("pending_file_generation", {})
+    json_data = parse_llm_json(last_user_msg)
+    if json_data and "sheets" in json_data:
+        pending = state.get("pending_template_build", {})
 
-            result = _create_file_from_llm_json(
-                gen_data,
-                pending.get("output_format", "xlsx"),
-                pending.get("output_name", "generated"),
-                pending.get("sources", []),
-                pending.get("template")
-            )
+        result = build_from_json(
+            json_data,
+            template_name=pending.get("template"),
+            role=role
+        )
 
-            state["pending_file_generation"] = None
-            memory.set_state(role, state)
+        state["pending_template_build"] = None
+        memory.set_state(role, state)
 
-            if result.get("success"):
-                response = f"✅ Файл создан: {result['filename']}\n\n"
-                response += f"📁 Источники: {', '.join(pending.get('sources', []))}\n"
-                response += f"📋 По шаблону: {pending.get('template')}\n"
-                response += f"📊 Таблиц: {result.get('sheets_count', 0)}\n\n"
-                response += f"🔗 Скачать: {result['download_url']}"
-                return response, messages
-            else:
-                return f"❌ Ошибка создания файла: {result.get('error')}", messages
+        if result.get("success"):
+            response = f"✅ Файл создан: {result['filename']}\n"
+            response += f"📊 Листов: {result.get('sheets_count', 0)}, "
+            response += f"Строк: {result.get('rows_count', 0)}\n"
+            response += f"🔗 Скачать: {result['download_url']}"
+            return response, messages
+        else:
+            return f"❌ Ошибка создания файла: {result.get('error')}", messages
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Ошибка парсинга JSON генерации: {e}")
-            state["pending_file_generation"] = None
-            memory.set_state(role, state)
-
-    if _is_generate_command(last_user_msg):
-        logger.info("Router: обнаружена команда генерации файла")
+    if _is_template_command(last_user_msg) or _is_generate_command(last_user_msg):
+        logger.info("Router: команда генерации по шаблону")
 
         if re.search(r'покажи\s+примеры|список\s+примеров|что\s+есть\s+в\s+examples|шаблоны|список шаблонов',
                      last_user_msg, re.I):
             examples = get_example_files()
-            if examples:
-                examples_list = "\n".join([f"- {e['name']} ({e['type']})" for e in examples])
-                return f"📁 Доступные шаблоны в папке examples:\n{examples_list}", messages
-            else:
-                return "Папка examples пуста. Добавьте шаблоны в storage/examples/", messages
-
-        source_files, output_format, output_name, template = _extract_files_from_generate_command(last_user_msg, role)
-
-        if not source_files:
             role_dir = STORAGE_DIR / role
-            available_files = []
+            role_files = []
             if role_dir.exists():
-                available_files = [f.name for f in role_dir.iterdir()
-                                   if f.suffix.lower() in ['.xlsx', '.xls', '.docx', '.pdf', '.pptx']]
+                role_files = [
+                    {"name": f.name, "type": f.suffix}
+                    for f in role_dir.iterdir()
+                    if f.suffix.lower() in ['.xlsx', '.xls', '.docx']
+                ]
 
-            if available_files:
-                files_list = "\n".join([f"- {f}" for f in available_files[:15]])
-                return f"Укажите файлы для объединения.\n\n📁 Доступные файлы:\n{files_list}\n\n💡 Пример: 'Создай Excel из file1.xlsx и file2.docx'", messages
-            else:
-                return "Файлы не найдены. Загрузите файлы для объединения.", messages
+            response = "📁 Доступные файлы:\n\n"
+            if examples:
+                response += "**Шаблоны (examples):**\n"
+                response += "\n".join([f"- {e['name']}" for e in examples])
+                response += "\n\n"
+            if role_files:
+                response += "**Ваши файлы:**\n"
+                response += "\n".join([f"- {f['name']}" for f in role_files])
+
+            return response, messages
+
+        template_name = _extract_template_name(last_user_msg, role)
+        source_files = _extract_source_files(last_user_msg, role, exclude=template_name)
+        output_format, output_name = _extract_output_params(last_user_msg)
 
         if not output_name:
-            output_name = "combined"
+            output_name = "generated"
 
-        if template:
-            from tools.file_reader_tool import extract_content, read_multiple_files
+        logger.info(f"Template: {template_name}, Sources: {source_files}, Format: {output_format}")
 
-            template_path = find_file(template, role)
+        if not template_name and not source_files:
+            role_dir = STORAGE_DIR / role
+            available = []
+            if role_dir.exists():
+                available = [f.name for f in role_dir.iterdir()
+                             if f.suffix.lower() in ['.xlsx', '.xls', '.docx', '.pdf']]
+
+            if available:
+                files_list = "\n".join([f"- {f}" for f in available[:15]])
+                return f"Укажите шаблон и файлы-источники данных.\n\n📁 Доступные файлы:\n{files_list}\n\n💡 Пример: 'Создай по шаблону template.xlsx из data.xlsx'", messages
+            else:
+                return "Файлы не найдены. Загрузите шаблон и файлы с данными.", messages
+
+        if template_name:
+            template_path = find_file(template_name, role)
             if not template_path:
-                return f"❌ Шаблон не найден: {template}", messages
+                return f"❌ Шаблон не найден: {template_name}", messages
 
-            template_content = extract_content(template_path)
+            try:
+                schema = analyze_template(template_path)
+                schema_text = format_schema_for_llm(schema)
+            except Exception as e:
+                logger.error(f"Template analysis error: {e}")
+                return f"❌ Ошибка анализа шаблона: {e}", messages
+
+            if source_files:
+                source_contents = read_multiple_files(source_files, role)
+                if not source_contents:
+                    return "❌ Не удалось прочитать файлы-источники", messages
+
+                mappings = map_multiple_sources(schema, source_contents)
+                mapping_context = format_mapping_for_llm(schema, mappings)
+
+                context = f"""ЗАДАЧА: Создать файл по структуре шаблона, используя данные из источников.
+
+{schema_text}
+
+{mapping_context}
+
+ВАЖНО:
+1. Структура ТОЧНО соответствует шаблону (те же колонки в том же порядке)
+2. Данные берутся из источников и маппятся на колонки шаблона
+3. Если в источнике нет данных для колонки - оставь пустым
+4. Сохрани типы данных (числа как числа, текст как текст)
+5. Порядок колонок: {schema.get_column_names()}
+
+Верни ТОЛЬКО JSON без пояснений."""
+            else:
+                template_content = extract_content(template_path)
+                template_preview = _format_content_for_llm(template_content)
+
+                context = f"""ЗАДАЧА: Создать ПУСТОЙ файл по структуре шаблона.
+
+{schema_text}
+
+СОДЕРЖИМОЕ ШАБЛОНА:
+{template_preview}
+
+Верни JSON с пустой структурой (только заголовки, без данных):
+```json
+{{
+  "output_format": "{output_format}",
+  "output_name": "{output_name}",
+  "sheets": [
+    {{
+      "name": "{schema.sheet_name or 'Лист1'}",
+      "headers": {schema.get_column_names()},
+      "rows": []
+    }}
+  ]
+}}
+```"""
+
+            messages.append({"role": "user", "content": context})
+
+            state["pending_template_build"] = {
+                "template": template_name,
+                "sources": source_files,
+                "output_format": output_format,
+                "output_name": output_name
+            }
+            memory.set_state(role, state)
+
+            return None, messages
+
+        elif source_files:
             source_contents = read_multiple_files(source_files, role)
-
             if not source_contents:
-                return "❌ Не удалось прочитать исходные файлы", messages
+                return "❌ Не удалось прочитать файлы", messages
 
-            template_preview = _format_content_for_llm(template_content)
             sources_preview = "\n\n---\n\n".join([
                 f"ФАЙЛ: {c.filename}\n{_format_content_for_llm(c)}"
                 for c in source_contents
             ])
 
-            context = f"""ЗАДАЧА: Создать файл по структуре шаблона, используя данные из исходных файлов.
+            context = f"""ЗАДАЧА: Объединить данные из файлов в один {output_format}.
 
-ШАБЛОН ({template}):
-{template_preview}
-
-ИСХОДНЫЕ ДАННЫЕ:
+ИСТОЧНИКИ:
 {sources_preview}
 
----
-
-Проанализируй структуру шаблона и данные из исходных файлов.
-Создай JSON который соответствует структуре шаблона, но с данными из исходных файлов.
-
-Формат ответа - ТОЛЬКО JSON:
+Создай JSON для объединённого файла:
 ```json
 {{
   "output_format": "{output_format}",
   "output_name": "{output_name}",
-  "title": "Заголовок документа",
+  "title": "Объединённые данные",
   "sheets": [
     {{
-      "name": "Название листа",
-      "headers": ["Колонка1", "Колонка2", ...],
-      "rows": [
-        ["значение1", "значение2", ...],
-        ...
-      ]
+      "name": "Данные",
+      "headers": [...колонки из источников...],
+      "rows": [...все строки данных...]
     }}
   ]
 }}
-```
+```"""
 
-Важно:
-- Структура должна ТОЧНО соответствовать шаблону
-- Данные берутся из исходных файлов
-- Объедини похожие данные из разных файлов
-- Если в шаблоне несколько разделов (например Материалы и Работы) - сохрани эту структуру
-"""
             messages.append({"role": "user", "content": context})
 
-            state["pending_file_generation"] = {
+            state["pending_template_build"] = {
+                "sources": source_files,
                 "output_format": output_format,
-                "output_name": output_name,
-                "sources": [c.filename for c in source_contents],
-                "template": template
+                "output_name": output_name
             }
             memory.set_state(role, state)
 
-            logger.info(f"Router: генерация по шаблону, отправляем в LLM")
             return None, messages
 
-        title_match = re.search(r'(?:с названием|заголовок|title)\s+["\']?([^"\']+)["\']?', last_user_msg, re.I)
-        title = title_match.group(1) if title_match else None
-
-        include_images = 'без картинок' not in last_user_msg.lower() and 'без изображений' not in last_user_msg.lower()
-
-        result = generate_file(
-            source_files=source_files,
-            output_format=output_format,
-            output_name=output_name,
-            title=title,
-            template_name=None,
-            include_images=include_images,
-            role=role
-        )
-
-        if result.get("success"):
-            response = f"✅ Файл создан: {result['filename']}\n\n"
-            response += f"📁 Источники: {', '.join(result.get('sources', []))}\n"
-            response += f"📊 Таблиц: {result.get('tables_count', 0)}, "
-            response += f"Изображений: {result.get('images_count', 0)}\n\n"
-            response += f"🔗 Скачать: {result['download_url']}"
-            return response, messages
-        else:
-            return f"❌ Ошибка: {result.get('error')}", messages
-
     if _is_edit_command(last_user_msg):
-        logger.info("Router: обнаружена команда редактирования")
+        logger.info("Router: команда редактирования")
         filename = _extract_filename_from_text(last_user_msg, role)
-        logger.info(f"Router: извлечённый файл = {filename}")
 
         if not filename:
             results = smart_search(last_user_msg, role, limit=5)
@@ -669,21 +503,19 @@ async def route_message(messages: list, role: str):
                 return "Excel файлы не найдены.", messages
 
         if _is_complex_edit_command(last_user_msg):
-            instruction = _get_edit_instruction(last_user_msg, filename)
             file_content = read_excel_for_edit(filename, role=role)
 
             context = f"""Файл: {filename}
 
-ВАЖНО: Колонка ROW содержит РЕАЛЬНЫЕ номера строк Excel. Используй именно эти номера в операциях!
+ВАЖНО: Колонка ROW содержит РЕАЛЬНЫЕ номера строк Excel. Используй именно эти номера!
 
 Содержимое:
 {file_content}
 
 ---
-Инструкция пользователя: {instruction}
+Инструкция: {last_user_msg}
 
-Проанализируй таблицу и сгенерируй JSON с операциями редактирования.
-Формат ответа:
+Сгенерируй JSON:
 ```json
 {{
   "filename": "{filename}",
@@ -694,47 +526,35 @@ async def route_message(messages: list, role: str):
 }}
 ```
 
-Доступные операции:
-- delete_row: удалить строку (row = номер строки)
-- edit_cell: изменить ячейку (row, col, value)
-- add_row: добавить строку (data = массив значений, after_row = после какой строки)
-"""
+Операции: delete_row, edit_cell (row, col, value), add_row (data, after_row)
+Удаляй строки от большего номера к меньшему!"""
+
             messages.append({"role": "user", "content": context})
-            logger.info(f"Router: сложная команда, отправляем в LLM. Файл: {filename}")
             return None, messages
 
         _, operations = parse_excel_command(last_user_msg)
 
         if operations:
             result = edit_excel(filename, operations, role=role)
-
             if result.get("success"):
-                ops_desc = ", ".join([op["action"] for op in operations])
-                return f"Выполнено ({ops_desc})!\n\nСкачать: {result['download_url']}", messages
+                return f"Выполнено!\n\nСкачать: {result['download_url']}", messages
             else:
                 return f"Ошибка: {result.get('error')}", messages
         else:
             file_content = read_excel_for_edit(filename, role=role)
-            instruction = _get_edit_instruction(last_user_msg, filename)
 
             context = f"""Файл: {filename}
 
-ВАЖНО: Колонка ROW содержит РЕАЛЬНЫЕ номера строк Excel. Используй именно эти номера в операциях!
+ВАЖНО: Колонка ROW содержит РЕАЛЬНЫЕ номера строк Excel.
 
 Содержимое:
 {file_content}
 
 ---
-Инструкция: {instruction}
+Инструкция: {last_user_msg}
 
-Сгенерируй JSON с операциями:
-```json
-{{
-  "filename": "{filename}",
-  "operations": [...]
-}}
-```
-"""
+Сгенерируй JSON с операциями."""
+
             messages.append({"role": "user", "content": context})
             return None, messages
 
@@ -760,8 +580,7 @@ async def route_message(messages: list, role: str):
 
     edit_match = re.search(
         r'```json\s*(\{[\s\S]*?"operations"[\s\S]*?\})\s*```',
-        last_user_msg,
-        re.I
+        last_user_msg, re.I
     )
     if edit_match:
         try:
@@ -775,8 +594,8 @@ async def route_message(messages: list, role: str):
                     return f"Файл отредактирован!\n\nСкачать: {result['download_url']}", messages
                 else:
                     return f"Ошибка: {result.get('error')}", messages
-        except json.JSONDecodeError as e:
-            logger.error(f"Ошибка парсинга JSON: {e}")
+        except json.JSONDecodeError:
+            pass
 
     if any(ext in last_user_msg.lower() for ext in [".xlsx", ".xls"]):
         filename = _extract_filename_from_text(last_user_msg, role)

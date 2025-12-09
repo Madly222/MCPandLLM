@@ -1,5 +1,6 @@
-# tools/file_generator_tool.py
 import os
+import re
+import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -9,7 +10,7 @@ from io import BytesIO
 from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font, Alignment, Border, Side
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
 from docx import Document
 from docx.shared import Inches, Pt, Cm
@@ -40,6 +41,74 @@ def _generate_filename(base_name: str, extension: str) -> str:
     return f"{clean_name}_{timestamp}{extension}"
 
 
+def _convert_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        if '.' in s or ',' in s:
+            return float(s.replace(',', '.').replace(' ', ''))
+        return int(s.replace(' ', ''))
+    except:
+        return s
+
+
+def parse_llm_json(response: str) -> Optional[Dict[str, Any]]:
+    patterns = [
+        r'```json\s*(\{[\s\S]*?\})\s*```',
+        r'```\s*(\{[\s\S]*?\})\s*```',
+        r'(\{[\s\S]*"sheets"[\s\S]*\})',
+        r'(\{[\s\S]*"operations"[\s\S]*\})',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, response)
+        if match:
+            json_str = match.group(1)
+            json_str = re.sub(r'//.*?(?=\n|$)', '', json_str)
+            json_str = re.sub(r',\s*}', '}', json_str)
+            json_str = re.sub(r',\s*]', ']', json_str)
+
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON parse error: {e}")
+                continue
+
+    return None
+
+
+def json_to_extracted_content(data: Dict[str, Any]) -> List[ExtractedContent]:
+    contents = []
+    sheets = data.get("sheets", [])
+    title = data.get("title", "")
+
+    for sheet_data in sheets:
+        sheet_name = sheet_data.get("name", "Лист1")
+        headers = sheet_data.get("headers", [])
+        rows = sheet_data.get("rows", [])
+
+        table = ExtractedTable(
+            headers=headers,
+            rows=rows,
+            sheet_name=sheet_name
+        )
+
+        content = ExtractedContent(
+            filename=title or sheet_name,
+            file_type="json",
+            tables=[table],
+            metadata={"from_json": True}
+        )
+        contents.append(content)
+
+    return contents
+
+
 def create_excel(
         contents: List[ExtractedContent],
         output_name: str = "generated",
@@ -57,7 +126,8 @@ def create_excel(
             ws.title = "Данные"
 
         header_font = Font(bold=True, size=12)
-        header_alignment = Alignment(horizontal='center', vertical='center')
+        header_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        header_fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
         thin_border = Border(
             left=Side(style='thin'),
             right=Side(style='thin'),
@@ -74,13 +144,15 @@ def create_excel(
                 ws = wb.create_sheet(title=sheet_name)
                 current_row = 1
 
-            if len(contents) > 1 or content.filename:
+            is_from_json = content.metadata.get("from_json", False)
+
+            if not is_from_json and (len(contents) > 1 or content.filename):
                 ws.cell(row=current_row, column=1, value=f"Источник: {content.filename}")
                 ws.cell(row=current_row, column=1).font = Font(bold=True, italic=True, size=11)
                 current_row += 1
 
             for table in content.tables:
-                if table.sheet_name and separate_sheets:
+                if not is_from_json and table.sheet_name and separate_sheets:
                     ws.cell(row=current_row, column=1, value=f"Таблица: {table.sheet_name}")
                     ws.cell(row=current_row, column=1).font = Font(italic=True)
                     current_row += 1
@@ -90,12 +162,16 @@ def create_excel(
                     cell.font = header_font
                     cell.alignment = header_alignment
                     cell.border = thin_border
+                    cell.fill = header_fill
                 current_row += 1
 
                 for row_data in table.rows:
                     for col_idx, value in enumerate(row_data, 1):
-                        cell = ws.cell(row=current_row, column=col_idx, value=value)
+                        converted = _convert_value(value)
+                        cell = ws.cell(row=current_row, column=col_idx, value=converted)
                         cell.border = thin_border
+                        if isinstance(converted, (int, float)):
+                            cell.alignment = Alignment(horizontal='right')
                     current_row += 1
 
                 current_row += 1
@@ -132,13 +208,10 @@ def create_excel(
                 try:
                     img_stream = BytesIO(img_data.data)
                     xl_img = XLImage(img_stream)
-
                     xl_img.width = min(xl_img.width, 400)
                     xl_img.height = min(xl_img.height, 300)
-
                     img_sheet.add_image(xl_img, f"A{img_row}")
                     img_sheet.cell(row=img_row, column=5, value=img_data.filename)
-
                     img_row += 20
                 except Exception as e:
                     logger.warning(f"Ошибка вставки изображения: {e}")
@@ -151,8 +224,6 @@ def create_excel(
 
         download_url = f"{SERVER_URL}/download/{output_filename}"
 
-        logger.info(f"Excel создан: {output_path}")
-
         return {
             "success": True,
             "filename": output_filename,
@@ -160,15 +231,13 @@ def create_excel(
             "path": str(output_path),
             "sources": [c.filename for c in contents],
             "tables_count": sum(len(c.tables) for c in contents),
-            "images_count": sum(len(c.images) for c in contents)
+            "images_count": sum(len(c.images) for c in contents),
+            "rows_count": sum(len(t.rows) for c in contents for t in c.tables)
         }
 
     except Exception as e:
         logger.error(f"Ошибка создания Excel: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 def create_word(
@@ -186,7 +255,9 @@ def create_word(
             doc.add_paragraph()
 
         for content_idx, content in enumerate(contents):
-            if content.filename:
+            is_from_json = content.metadata.get("from_json", False)
+
+            if not is_from_json and content.filename:
                 doc.add_heading(f"Источник: {content.filename}", level=1)
 
             if content.text:
@@ -199,10 +270,11 @@ def create_word(
                             doc.add_paragraph(para_text.strip())
 
             for table_idx, table_data in enumerate(content.tables):
-                if table_data.sheet_name:
-                    doc.add_heading(f"Таблица: {table_data.sheet_name}", level=2)
-                elif len(content.tables) > 1:
-                    doc.add_heading(f"Таблица {table_idx + 1}", level=2)
+                if not is_from_json:
+                    if table_data.sheet_name:
+                        doc.add_heading(f"Таблица: {table_data.sheet_name}", level=2)
+                    elif len(content.tables) > 1:
+                        doc.add_heading(f"Таблица {table_idx + 1}", level=2)
 
                 if table_data.headers or table_data.rows:
                     num_cols = len(table_data.headers) if table_data.headers else len(
@@ -227,22 +299,19 @@ def create_word(
                             doc_row = doc_table.rows[start_row + row_idx]
                             for col_idx, value in enumerate(row_data):
                                 if col_idx < num_cols:
-                                    doc_row.cells[col_idx].text = str(value)
+                                    doc_row.cells[col_idx].text = str(value) if value else ""
 
                         doc.add_paragraph()
 
             if include_images and content.images:
                 doc.add_heading("Изображения", level=2)
-
                 for img in content.images:
                     try:
                         img_stream = BytesIO(img.data)
                         doc.add_picture(img_stream, width=Inches(5))
-
                         caption = doc.add_paragraph(img.filename)
                         caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
                         caption.runs[0].italic = True
-
                         doc.add_paragraph()
                     except Exception as e:
                         logger.warning(f"Ошибка вставки изображения: {e}")
@@ -257,8 +326,6 @@ def create_word(
 
         download_url = f"{SERVER_URL}/download/{output_filename}"
 
-        logger.info(f"Word создан: {output_path}")
-
         return {
             "success": True,
             "filename": output_filename,
@@ -266,15 +333,51 @@ def create_word(
             "path": str(output_path),
             "sources": [c.filename for c in contents],
             "tables_count": sum(len(c.tables) for c in contents),
-            "images_count": sum(len(c.images) for c in contents)
+            "images_count": sum(len(c.images) for c in contents),
+            "rows_count": sum(len(t.rows) for c in contents for t in c.tables)
         }
 
     except Exception as e:
         logger.error(f"Ошибка создания Word: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
+
+
+def build_from_json(
+        data: Dict[str, Any],
+        template_name: Optional[str] = None,
+        role: Optional[str] = None
+) -> Dict[str, Any]:
+    output_format = data.get("output_format", "xlsx").lower().strip('.')
+    output_name = data.get("output_name", "generated")
+    title = data.get("title")
+
+    contents = json_to_extracted_content(data)
+
+    if not contents:
+        return {"success": False, "error": "No data in JSON"}
+
+    if output_format in ['xlsx', 'excel', 'xls']:
+        return create_excel(contents, output_name, title, include_images=False)
+    elif output_format in ['docx', 'word', 'doc']:
+        return create_word(contents, output_name, title, include_images=False)
+    else:
+        return {"success": False, "error": f"Unsupported format: {output_format}"}
+
+
+def build_from_llm_response(
+        llm_response: str,
+        template_name: Optional[str] = None,
+        role: Optional[str] = None
+) -> Dict[str, Any]:
+    data = parse_llm_json(llm_response)
+
+    if not data:
+        return {"success": False, "error": "Could not parse JSON from LLM response"}
+
+    if "sheets" not in data:
+        return {"success": False, "error": "No 'sheets' in JSON"}
+
+    return build_from_json(data, template_name, role)
 
 
 def create_from_template(
@@ -287,10 +390,7 @@ def create_from_template(
     if not template_path:
         template_path = EXAMPLES_DIR / template_name
         if not template_path.exists():
-            return {
-                "success": False,
-                "error": f"Шаблон не найден: {template_name}"
-            }
+            return {"success": False, "error": f"Шаблон не найден: {template_name}"}
 
     suffix = template_path.suffix.lower()
 
@@ -299,10 +399,7 @@ def create_from_template(
     elif suffix == '.docx':
         return _create_word_from_template(template_path, contents, output_name)
     else:
-        return {
-            "success": False,
-            "error": f"Неподдерживаемый формат шаблона: {suffix}"
-        }
+        return {"success": False, "error": f"Неподдерживаемый формат шаблона: {suffix}"}
 
 
 def _create_excel_from_template(
@@ -315,14 +412,13 @@ def _create_excel_from_template(
         ws = wb.active
 
         template_structure = _analyze_excel_template(ws)
-
         current_row = template_structure.get('data_start_row', 2)
 
         for content in contents:
             for table in content.tables:
                 for row_data in table.rows:
                     for col_idx, value in enumerate(row_data, 1):
-                        ws.cell(row=current_row, column=col_idx, value=value)
+                        ws.cell(row=current_row, column=col_idx, value=_convert_value(value))
                     current_row += 1
 
         output_filename = _generate_filename(output_name, ".xlsx")
@@ -345,10 +441,7 @@ def _create_excel_from_template(
 
     except Exception as e:
         logger.error(f"Ошибка создания Excel из шаблона: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 def _create_word_from_template(
@@ -394,7 +487,7 @@ def _create_word_from_template(
                     for row_idx, row_data in enumerate(table_data.rows):
                         for col_idx, value in enumerate(row_data):
                             if col_idx < num_cols:
-                                doc_table.rows[start_row + row_idx].cells[col_idx].text = str(value)
+                                doc_table.rows[start_row + row_idx].cells[col_idx].text = str(value) if value else ""
 
                     doc.add_paragraph()
 
@@ -427,10 +520,7 @@ def _create_word_from_template(
 
     except Exception as e:
         logger.error(f"Ошибка создания Word из шаблона: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 def _analyze_excel_template(ws) -> Dict[str, Any]:
@@ -454,7 +544,6 @@ def _analyze_excel_template(ws) -> Dict[str, Any]:
 
     return structure
 
-
 def generate_file(
         source_files: List[str],
         output_format: str,
@@ -467,10 +556,7 @@ def generate_file(
     contents = read_multiple_files(source_files, role)
 
     if not contents:
-        return {
-            "success": False,
-            "error": "Не удалось прочитать ни один файл"
-        }
+        return {"success": False, "error": "Не удалось прочитать ни один файл"}
 
     if template_name:
         return create_from_template(template_name, contents, output_name, role)
@@ -482,7 +568,4 @@ def generate_file(
     elif output_format in ['docx', 'word', 'doc']:
         return create_word(contents, output_name, title, include_images)
     else:
-        return {
-            "success": False,
-            "error": f"Неподдерживаемый формат: {output_format}. Доступные: xlsx, docx"
-        }
+        return {"success": False, "error": f"Неподдерживаемый формат: {output_format}. Доступные: xlsx, docx"}

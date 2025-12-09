@@ -9,6 +9,7 @@ from agent.models import send_to_llm
 from vector_store import vector_store
 from tools.search_tool import get_rag_context
 from tools.edit_excel_tool import edit_excel
+from tools.file_generator_tool import parse_llm_json, build_from_json
 
 logger = logging.getLogger(__name__)
 
@@ -34,46 +35,58 @@ def _is_simple_message(query: str) -> bool:
     return False
 
 
-def _extract_and_apply_json_operations(llm_response: str, role: str = None) -> str:
-    logger.info(f"Проверяем ответ LLM на наличие JSON ({len(llm_response)} символов)")
+def _extract_and_apply_operations(llm_response: str, role: str = None) -> str:
+    logger.info(f"Checking LLM response for JSON ({len(llm_response)} chars)")
 
-    edit_match = re.search(
-        r'```json\s*(\{[\s\S]*?"operations"[\s\S]*?\})\s*```',
-        llm_response,
-        re.I
-    )
+    json_data = parse_llm_json(llm_response)
 
-    if not edit_match:
-        logger.info("JSON с операциями не найден в ответе")
+    if not json_data:
+        logger.info("No valid JSON found in response")
         return llm_response
 
-    logger.info("Найден JSON блок в ответе LLM")
+    if "sheets" in json_data:
+        logger.info("Found file generation JSON")
 
-    try:
-        json_str = edit_match.group(1)
-        json_str = re.sub(r'//.*?(?=\n|$)', '', json_str)
-        json_str = re.sub(r',\s*}', '}', json_str)
-        json_str = re.sub(r',\s*]', ']', json_str)
-        logger.info(f"JSON строка: {json_str[:200]}...")
+        state = memory.get_state(role) or {}
+        pending = state.get("pending_template_build", {})
 
-        edit_data = json.loads(json_str)
-        filename = edit_data.get("filename")
-        operations = edit_data.get("operations", [])
+        result = build_from_json(
+            json_data,
+            template_name=pending.get("template"),
+            role=role
+        )
 
-        logger.info(f"Распарсено: filename={filename}, operations={len(operations)}")
+        state["pending_template_build"] = None
+        memory.set_state(role, state)
+
+        if result.get("success"):
+            explanation = _extract_explanation(llm_response)
+            response = f"✅ Файл создан: {result['filename']}\n"
+            response += f"📊 Листов: {result.get('sheets_count', 0)}, "
+            response += f"Строк: {result.get('rows_count', 0)}\n"
+            response += f"🔗 Скачать: {result['download_url']}"
+            if explanation:
+                response = f"{explanation}\n\n{response}"
+            return response
+        else:
+            return f"{llm_response}\n\n❌ Ошибка создания файла: {result.get('error')}"
+
+    if "operations" in json_data:
+        logger.info("Found edit operations JSON")
+
+        filename = json_data.get("filename")
+        operations = json_data.get("operations", [])
 
         if not filename or not operations:
-            logger.warning("filename или operations пустые")
+            logger.warning("Missing filename or operations")
             return llm_response
 
-        logger.info(f"Применяем {len(operations)} операций к файлу: {filename}")
+        logger.info(f"Applying {len(operations)} operations to: {filename}")
 
         result = edit_excel(filename, operations, role=role)
 
-        logger.info(f"Результат edit_excel: {result}")
-
         if result.get("success"):
-            explanation = llm_response[:edit_match.start()].strip()
+            explanation = _extract_explanation(llm_response)
             if explanation:
                 return f"{explanation}\n\nГотово! Скачать: {result['download_url']}"
             else:
@@ -81,13 +94,20 @@ def _extract_and_apply_json_operations(llm_response: str, role: str = None) -> s
         else:
             return f"{llm_response}\n\nОшибка применения: {result.get('error')}"
 
-    except json.JSONDecodeError as e:
-        logger.error(f"Ошибка парсинга JSON: {e}")
-        logger.error(f"JSON строка была: {edit_match.group(1)[:500]}")
-        return llm_response
-    except Exception as e:
-        logger.error(f"Ошибка применения операций: {e}", exc_info=True)
-        return f"{llm_response}\n\nОшибка: {e}"
+    return llm_response
+
+
+def _extract_explanation(response: str) -> str:
+    json_start = response.find('```json')
+    if json_start == -1:
+        json_start = response.find('{')
+
+    if json_start > 0:
+        explanation = response[:json_start].strip()
+        if explanation:
+            return explanation
+
+    return ""
 
 
 async def agent_process(prompt: str, role: str):
@@ -95,14 +115,10 @@ async def agent_process(prompt: str, role: str):
 
     rag_context = ""
     if not _is_simple_message(prompt):
-        logger.info(f"Запускаем RAG поиск для: {prompt[:50]}...")
+        logger.info(f"Running RAG search for: {prompt[:50]}...")
         rag_context = get_rag_context(prompt, role, top_n=10, max_context_chars=MAX_CONTEXT_CHARS)
         if rag_context:
-            logger.info(f"RAG контекст: {len(rag_context)} символов")
-        else:
-            logger.info("RAG: ничего не найдено")
-    else:
-        logger.info("Простое сообщение, RAG пропущен")
+            logger.info(f"RAG context: {len(rag_context)} chars")
 
     system_content = SYSTEM_PROMPT
     if rag_context:
@@ -112,7 +128,7 @@ async def agent_process(prompt: str, role: str):
     messages.append({"role": "user", "content": prompt})
 
     total_chars = sum(len(m["content"]) for m in messages)
-    logger.info(f"Промпт: {total_chars} символов, ~{total_chars // 4} токенов")
+    logger.info(f"Prompt: {total_chars} chars, ~{total_chars // 4} tokens")
 
     if vector_store.is_connected():
         vector_store.add_chat_message(prompt, "user", role)
@@ -121,7 +137,7 @@ async def agent_process(prompt: str, role: str):
 
     if result is None:
         llm_response = await send_to_llm(updated_messages)
-        result = _extract_and_apply_json_operations(llm_response, role)
+        result = _extract_and_apply_operations(llm_response, role)
 
     if vector_store.is_connected():
         vector_store.add_chat_message(result, "assistant", role)
